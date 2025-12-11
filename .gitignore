@@ -1,0 +1,51 @@
+# General
+.DS_Store
+.idea/
+.vscode/
+*.swp
+*.log
+
+# Secrets & Config
+config/
+.env
+
+# Build Directories (C++ & General)
+build/
+dist/
+bin/
+
+# Rust
+target/
+**/*.rs.bk
+
+# C++ / CMake
+cmake-build-debug/
+cmake-build-release/
+CMakeFiles/
+CMakeCache.txt
+*.cmake
+*.o
+*.a
+*.so
+*.dylib
+compile_commands.json
+
+# Generated Executables
+strategy-lab/strategy_lab
+multiplexer/multiplexer
+# And any other binaries that might appear in root or headers
+*.out
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+env/
+venv/
+.venv/
+*.egg-info/
+.pytest_cache/
+.coverage
+htmlcov/
