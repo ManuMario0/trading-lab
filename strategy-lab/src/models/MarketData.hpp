@@ -15,7 +15,9 @@ struct MarketUpdate {
     std::string symbol;
     std::string exchange;
     double price;
-    // extended fields like bid/ask/last/volume can be added here
+    double bid;
+    double ask;
+    // extended fields like last/volume can be added here
   };
 
   std::vector<AssetUpdate> updates;
@@ -26,14 +28,21 @@ struct MarketUpdate {
 // ------------------
 
 inline void to_json(nlohmann::json &j, const MarketUpdate::AssetUpdate &p) {
-  j = nlohmann::json{
-      {"symbol", p.symbol}, {"exchange", p.exchange}, {"price", p.price}};
+  j = nlohmann::json{{"symbol", p.symbol},
+                     {"exchange", p.exchange},
+                     {"price", p.price},
+                     {"bid", p.bid},
+                     {"ask", p.ask}};
 }
 
 inline void from_json(const nlohmann::json &j, MarketUpdate::AssetUpdate &p) {
   j.at("symbol").get_to(p.symbol);
   j.at("exchange").get_to(p.exchange);
   j.at("price").get_to(p.price);
+  if (j.contains("bid"))
+    j.at("bid").get_to(p.bid);
+  if (j.contains("ask"))
+    j.at("ask").get_to(p.ask);
 }
 
 inline void to_json(nlohmann::json &j, const MarketUpdate &p) {
