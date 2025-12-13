@@ -10,7 +10,7 @@ serde_json = "1.0"
 zmq = "0.9" # Libzmq bindings
 anyhow = "1.0"
 thiserror = "1.0"
-uuid = { version = "1.0", features = ["v4"] }
+uuid = { version = "1.0", features = ["v4", "serde"] }
 chrono = { version = "0.4", features = ["serde"] }
 log = "0.4"
 env_logger = "0.10"
