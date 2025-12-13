@@ -9,49 +9,14 @@
 // compatibility In a shared library scenario, this would be a common
 // dependency.
 
-struct Instrument {
-  std::string type; // "Stock", "Future", etc.
-  InstrumentData data;
-
-  bool operator<(const Instrument &other) const {
-    if (type != other.type)
-      return type < other.type;
-    if (data.symbol != other.data.symbol)
-      return data.symbol < other.data.symbol;
-    return data.exchange < other.data.exchange;
-  }
-
-  bool operator==(const Instrument &other) const {
-    return type == other.type && data.symbol == other.data.symbol &&
-           data.exchange == other.data.exchange;
-  }
-
-  std::string to_string() const { return data.symbol + "." + data.exchange; }
-};
+// Instrument and InstrumentData are defined in MarketData.hpp
 
 struct TargetPortfolio {
-  std::string strategy_id; // Maps to 'multiplexer_id' effectively, or
-                           // identifies this strategy
+  std::string strategy_id; // Maps to 'multiplexer_id' effectively
   std::map<Instrument, double> target_weights;
 
   TargetPortfolio() = default;
 };
-
-// JSON Serialization
-// ------------------
-
-inline void to_json(nlohmann::json &j, const Instrument &p) {
-  j = nlohmann::json{
-      {"type", p.type},
-      {"data", {{"symbol", p.data.symbol}, {"exchange", p.data.exchange}}}};
-}
-
-inline void from_json(const nlohmann::json &j, Instrument &p) {
-  j.at("type").get_to(p.type);
-  auto &data = j.at("data");
-  data.at("symbol").get_to(p.data.symbol);
-  data.at("exchange").get_to(p.data.exchange);
-}
 
 inline void to_json(nlohmann::json &j, const TargetPortfolio &p) {
   std::vector<std::pair<Instrument, double>> weight_list;
@@ -66,11 +31,9 @@ inline void to_json(nlohmann::json &j, const TargetPortfolio &p) {
   // might expect a specific format. The user prompt said: "output socket (that
   // will connect mostlikely to a multiplexer) that sends TargetProfolio"
   j = nlohmann::json{
-      {"type", "TargetPortfolio"},
-      {"data",
-       {{"multiplexer_id", p.strategy_id}, // Using strategy_id as the ID
-        {"target_weights", weight_list},
-        {"target_positions", nullptr}}}};
+      {"multiplexer_id", p.strategy_id}, // Using strategy_id as the ID
+      {"target_weights", weight_list},
+      {"target_positions", nullptr}};
 }
 
 inline void from_json(const nlohmann::json &j, TargetPortfolio &p) {

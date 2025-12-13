@@ -149,7 +149,7 @@ impl Engine {
                         })
                         .sum::<f64>()
                 } else if !target.target_weights().is_empty() {
-                    let total_weight: f64 = target.target_weights().values().sum();
+                    let total_weight: f64 = target.target_weights().iter().map(|(_, w)| w).sum();
                     current_nav * total_weight
                 } else {
                     0.0
@@ -338,7 +338,7 @@ impl Engine {
                 target_quantities.insert(instrument.clone(), target_qty);
             }
         } else if let Some(positions) = target.target_positions() {
-            target_quantities = positions.clone();
+            target_quantities = positions.iter().cloned().collect();
         } else {
             return orders;
         }

@@ -62,20 +62,27 @@ def main():
         while True:
             new_price = gbm.step()
             
-            # Construct message
-            timestamp = datetime.datetime.utcnow().isoformat() + "Z"
+            # Construct message matching Rust `Price` struct
+            # {
+            #   "instrument": {"type": "Stock", "data": {"symbol": "...", "exchange": "..."}},
+            #   "last": 150.0,
+            #   "bid": 149.0,
+            #   "ask": 151.0,
+            #   "timestamp": 12345
+            # }
             
             message = {
-                "updates": [
-                    {
+                "instrument": {
+                    "type": "Stock",
+                    "data": {
                         "symbol": args.symbol,
-                        "exchange": args.exchange,
-                        "price": new_price,
-                        "bid": new_price - (args.spread / 2),
-                        "ask": new_price + (args.spread / 2)
+                        "exchange": args.exchange
                     }
-                ],
-                "timestamp": timestamp
+                },
+                "last": new_price,
+                "bid": new_price - (args.spread / 2),
+                "ask": new_price + (args.spread / 2),
+                "timestamp": int(time.time() * 1000)
             }
             
             # Send JSON

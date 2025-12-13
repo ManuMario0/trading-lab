@@ -4,12 +4,29 @@
 #include "logic/KellyMultiplexer.hpp"
 #include <chrono>
 #include <iostream>
+#include <string>
 #include <thread>
+#include <vector>
+
+// --- Helper for simple flag parsing ---
+std::string get_arg(const std::vector<std::string> &args,
+                    const std::string &flag, const std::string &default_val) {
+  auto it = std::find(args.begin(), args.end(), flag);
+  if (it != args.end() && ++it != args.end()) {
+    return *it;
+  }
+  return default_val;
+}
 
 // --- Main ---
 
-int main() {
+int main(int argc, char **argv) {
   std::cout << "=== Multiplexer Starting (ZMQ Enabled) ===" << std::endl;
+
+  std::vector<std::string> args(argv, argv + argc);
+  std::string input_port = get_arg(args, "--input-port", "5556");
+  std::string output_port = get_arg(args, "--output-port", "5557");
+  std::string admin_port = get_arg(args, "--admin-port", "5558");
 
   // 1. Config (Still Hardcoded for V0)
   ClientRegistry registry;
@@ -23,16 +40,22 @@ int main() {
   zmq::context_t context(1);
 
   // Input: PULL from Strategies
-  auto input = std::make_unique<ZmqInputListener>(context, "tcp://*:5556");
+  std::string input_addr = "tcp://*:" + input_port;
+  std::cout << "[ZmqInput] Binding to " << input_addr << std::endl;
+  auto input = std::make_unique<ZmqInputListener>(context, input_addr);
 
   // Output: PUB to Execution Engine
-  auto output = std::make_unique<ZmqOutputPublisher>(context, "tcp://*:5557");
+  std::string output_addr = "tcp://*:" + output_port;
+  std::cout << "[ZmqOutput] Binding to " << output_addr << std::endl;
+  auto output = std::make_unique<ZmqOutputPublisher>(context, output_addr);
 
   // 3. App Logic
   KellyMultiplexer app(registry, config);
 
   // Admin: REP for Orchestration
-  auto admin = std::make_unique<ZmqAdminListener>(context, "tcp://*:5558", app);
+  std::string admin_addr = "tcp://*:" + admin_port;
+  std::cout << "[ZmqAdmin] Binding to " << admin_addr << std::endl;
+  auto admin = std::make_unique<ZmqAdminListener>(context, admin_addr, app);
   admin->start();
 
   // 4. Wiring

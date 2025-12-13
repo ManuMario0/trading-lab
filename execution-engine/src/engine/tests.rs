@@ -4,7 +4,6 @@ use crate::models::{
     AllocationConfig, Instrument, MultiplexerId, StrategyConfig, SymbolId, TargetPortfolio,
 };
 use crate::risk_guard::RiskGuard;
-use std::collections::HashMap;
 
 fn create_test_engine() -> Engine {
     let rg = RiskGuard::new();
@@ -55,9 +54,7 @@ fn test_generate_orders_from_weights() {
     }
 
     // Target: 50% A, 50% B
-    let mut weights = HashMap::new();
-    weights.insert(a.clone(), 0.5);
-    weights.insert(b.clone(), 0.5);
+    let weights = vec![(a.clone(), 0.5), (b.clone(), 0.5)];
 
     let target = TargetPortfolio::new(id.clone(), weights, None);
 
@@ -100,8 +97,7 @@ fn test_atomic_batch_rejection() {
         p.cash_mut().deposit("USD", 10000.0);
     }
 
-    let mut weights = HashMap::new();
-    weights.insert(a.clone(), 0.5);
+    let weights = vec![(a.clone(), 0.5)];
 
     // This batch (1 order) should be rejected
     engine.on_target_portfolio(TargetPortfolio::new(id.clone(), weights, None));
@@ -136,8 +132,7 @@ fn test_min_global_equity_block() {
     }
 
     // Attempt to BUY (Increase Exposure)
-    let mut weights = HashMap::new();
-    weights.insert(a.clone(), 1.0); // 100% into Asset A
+    let weights = vec![(a.clone(), 1.0)]; // 100% into Asset A
 
     engine.on_target_portfolio(TargetPortfolio::new(id.clone(), weights, None));
 
@@ -166,10 +161,9 @@ fn test_min_global_equity_allow_reduction() {
     }
 
     // Target: Sell Half (Reduce Exposure).
-    let mut pos = HashMap::new();
-    pos.insert(a.clone(), 50.0); // Target 50 units
+    let pos = vec![(a.clone(), 50.0)]; // Target 50 units
 
-    engine.on_target_portfolio(TargetPortfolio::new(id.clone(), HashMap::new(), Some(pos)));
+    engine.on_target_portfolio(TargetPortfolio::new(id.clone(), Vec::new(), Some(pos)));
 
     // Verify Execution (Sold 50 units)
     let p = engine.portfolios.get(&id).unwrap();

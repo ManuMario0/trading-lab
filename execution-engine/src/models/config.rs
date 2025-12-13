@@ -84,17 +84,17 @@ pub struct TargetPortfolio {
 
     /// Target weights for each instrument relative to total equity.
     #[serde(default)]
-    target_weights: HashMap<Instrument, f64>,
+    target_weights: Vec<(Instrument, f64)>,
 
     /// Target quantity for each instrument.
-    target_positions: Option<HashMap<Instrument, f64>>,
+    target_positions: Option<Vec<(Instrument, f64)>>,
 }
 
 impl TargetPortfolio {
     pub fn new(
         multiplexer_id: MultiplexerId,
-        target_weights: HashMap<Instrument, f64>,
-        target_positions: Option<HashMap<Instrument, f64>>,
+        target_weights: Vec<(Instrument, f64)>,
+        target_positions: Option<Vec<(Instrument, f64)>>,
     ) -> Self {
         Self {
             multiplexer_id,
@@ -107,11 +107,11 @@ impl TargetPortfolio {
         &self.multiplexer_id
     }
 
-    pub fn target_weights(&self) -> &HashMap<Instrument, f64> {
+    pub fn target_weights(&self) -> &[(Instrument, f64)] {
         &self.target_weights
     }
 
-    pub fn target_positions(&self) -> Option<&HashMap<Instrument, f64>> {
-        self.target_positions.as_ref()
+    pub fn target_positions(&self) -> Option<&[(Instrument, f64)]> {
+        self.target_positions.as_deref()
     }
 }

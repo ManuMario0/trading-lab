@@ -65,11 +65,9 @@ inline void to_json(nlohmann::json &j, const TargetPortfolio &p) {
     weight_list.push_back({key, val});
   }
 
-  j = nlohmann::json{{"type", "TargetPortfolio"},
-                     {"data",
-                      {{"multiplexer_id", p.multiplexer_id},
-                       {"target_weights", weight_list},
-                       {"target_positions", nullptr}}}};
+  j = nlohmann::json{{"multiplexer_id", p.multiplexer_id},
+                     {"target_weights", weight_list},
+                     {"target_positions", nullptr}};
 }
 
 inline void from_json(const nlohmann::json &j, TargetPortfolio &p) {
