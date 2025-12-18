@@ -44,19 +44,21 @@ TargetPortfolio KellyMultiplexer::recalculate_and_publish() {
   // Formula: Weight_Mux = Sum(Weight_Strat * KellyScalar)
 
   for (const auto &[client_id, portfolio] : client_portfolios_) {
-    // Look up config
+    // Look up config or Auto-Register
     auto it = registry_.clients.find(client_id);
     if (it == registry_.clients.end()) {
-      std::cerr << "Warning: No config for client " << client_id
-                << ", ignoring." << std::endl;
-      continue;
+      std::cout << "[KellyMux] Auto-registering new client: " << client_id
+                << std::endl;
+      StrategyParams default_params;
+      default_params.mu = 0.05;    // 5% expected excess return
+      default_params.sigma = 0.20; // 20% volatility
+      registry_.clients[client_id] = default_params;
+      it = registry_.clients.find(client_id);
     }
 
     const StrategyParams &params = it->second;
 
     // Kelly Formula: f = (mu - r) / sigma^2
-    // Assuming r (risk free) = 0 for simplicity or embedded in mu (excess
-    // return).
     double raw_kelly = 0.0;
     if (params.sigma > 1e-6) {
       raw_kelly = params.mu / (params.sigma * params.sigma);
@@ -65,8 +67,17 @@ TargetPortfolio KellyMultiplexer::recalculate_and_publish() {
     // Apply Global Scalar (e.g. 0.3 * f)
     double scalar = config_.kelly_fraction * raw_kelly;
 
+    // Safety clamp (optional but good for testing)
+    if (scalar > 2.0)
+      scalar = 2.0;
+    if (scalar < -2.0)
+      scalar = -2.0;
+
     // Scale and Add Weights
     for (const auto &[instrument, heavy_weight] : portfolio.target_weights) {
+      // heavy_weight is usually -1.0 to 1.0 from Strategy usually representing
+      // 'conviction' If Strategy sends 1.0 means "Full Position". We scale it
+      // by Kelly.
       double final_weight = heavy_weight * scalar;
       aggregated.target_weights[instrument] += final_weight;
     }

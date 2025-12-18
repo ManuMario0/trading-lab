@@ -16,8 +16,17 @@ fn main() -> anyhow::Result<()> {
     info!("Configuration: {:?}", args);
 
     // 2. Initialize Core Components
-    // 2. Initialize Core Components
-    let risk_guard = RiskGuard::new();
+    let mut risk_guard = RiskGuard::new();
+
+    // Wire up Policies
+    risk_guard.add_policy(Box::new(
+        execution_engine::risk_guard::max_allocation::MaxAllocationPolicy,
+    ));
+    risk_guard.add_policy(Box::new(
+        execution_engine::risk_guard::max_position_size::MaxPositionSizePolicy {
+            max_percent: 0.10,
+        },
+    ));
 
     // Create Shared ZMQ Context
     let shared_context = zmq::Context::new();
@@ -27,6 +36,17 @@ fn main() -> anyhow::Result<()> {
 
     // Engine is shared between Admin (Thread) and Gateway (Main Loop)
     let engine = Arc::new(Mutex::new(Engine::new(risk_guard, exchange, config)));
+
+    // Seed Cash for MVP Verification
+    {
+        let mut g = engine.lock().unwrap();
+        g.deposit(
+            &execution_engine::models::MultiplexerId::new("KellyMux_Aggregated"),
+            "USD",
+            1_000_000.0,
+        );
+        log::info!("Seeded Engine with $1M USD for KellyMux_Aggregated");
+    }
 
     // 3. Initialize Admin Listener
     // Note: Admin runs in its own thread to handle synchronous REP/REQ cycles

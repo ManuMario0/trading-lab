@@ -20,6 +20,7 @@ pub struct SystemConfig {
     pub strategy_lab_path: String,
     pub multiplexer_path: String,
     pub execution_engine_path: String,
+    pub gateway_paper_path: String,
 }
 
 impl Default for SystemConfig {
@@ -31,7 +32,7 @@ impl Default for SystemConfig {
             admin_port: 5560,
             multiplexer_port: 5561,
             data_port: 5562,
-            order_port: 5563,
+            order_port: 5570,
 
             multiplexer_input_port: 5564,
             multiplexer_admin_port: 5565,
@@ -39,10 +40,11 @@ impl Default for SystemConfig {
 
             // Defaults assume we are running from root of repo or specific layout.
             // These will likely be overridden by config.toml
-            data_pipeline_path: "../data-pipeline/src/simulators/brownian_stock.py".to_string(),
+            data_pipeline_path: "../data-pipeline/src/run_replay_mvp.py".to_string(),
             strategy_lab_path: "../strategy-lab/build/strategy_lab".to_string(),
             multiplexer_path: "../multiplexer/build/multiplexer".to_string(),
             execution_engine_path: "../execution-engine/target/debug/execution-engine".to_string(),
+            gateway_paper_path: "../gateways/gateway-paper/target/debug/gateway-paper".to_string(),
         }
     }
 }
