@@ -3,13 +3,15 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]
 pub struct Layout {
+    id: String,
     nodes: Vec<Node>,
     edges: Vec<Edge>,
 }
 
 impl Layout {
-    pub fn new() -> Self {
+    pub fn new(id: &str) -> Self {
         Self {
+            id: id.to_string(),
             nodes: Vec::new(),
             edges: Vec::new(),
         }
@@ -29,5 +31,9 @@ impl Layout {
 
     pub fn edges(&self) -> &Vec<Edge> {
         &self.edges
+    }
+
+    pub fn id(&self) -> &str {
+        &self.id
     }
 }

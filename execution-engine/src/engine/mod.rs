@@ -50,6 +50,10 @@ impl Engine {
         self.consolidated_portfolio = ConsolidatedPortfolio::aggregate(&self.portfolios);
     }
 
+    pub fn portfolios(&self) -> &HashMap<MultiplexerId, Portfolio> {
+        &self.portfolios
+    }
+
     /// DEBUG/TEST: Manually deposit cash
     pub fn deposit(&mut self, id: &MultiplexerId, currency: &str, amount: f64) {
         let p = self.portfolios.entry(id.clone()).or_default();

@@ -1,10 +1,8 @@
-mod admin_client;
 mod api;
 mod config;
 mod layout;
 mod process;
 
-use admin_client::AdminClient;
 use api::run_api_server;
 use config::SystemConfig;
 use layout::manager::LayoutManager;
@@ -28,24 +26,15 @@ async fn main() -> anyhow::Result<()> {
 
     // 2. Initialize Comms
     let (tx, _rx) = broadcast::channel(100);
-    let admin_client = Arc::new(AdminClient::new(&config).expect("Failed to init AdminClient"));
 
     // 3. Start API Server
-    let admin_clone = admin_client.clone();
     let pm_clone = process_manager.clone();
     let lm_clone = layout_manager.clone();
     let tx_clone = tx.clone();
     let api_port = 3000;
 
     tokio::spawn(async move {
-        run_api_server(
-            admin_clone,
-            pm_clone,
-            lm_clone, // Pass LayoutManager
-            tx_clone,
-            api_port,
-        )
-        .await;
+        run_api_server(pm_clone, lm_clone, tx_clone, api_port).await;
     });
 
     info!("System initialized. Waiting for commands...");

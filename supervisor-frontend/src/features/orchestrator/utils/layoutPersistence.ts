@@ -17,6 +17,7 @@ export interface SavedEdge {
 }
 
 export interface LayoutData {
+    id: string;
     nodes: SavedNode[];
     edges: SavedEdge[];
 }
@@ -26,8 +27,9 @@ export interface LayoutData {
 /**
  * Converts ReactFlow UI state to Clean Backend Format
  */
-export const toSavedLayout = (nodes: Node[], edges: Edge[]): LayoutData => {
+export const toSavedLayout = (id: string, nodes: Node[], edges: Edge[]): LayoutData => {
     return {
+        id,
         nodes: nodes.map(n => ({
             id: n.id,
             name: n.data?.name || n.id, // Fallback to ID if name missing

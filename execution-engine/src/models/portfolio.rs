@@ -1,7 +1,10 @@
 use super::instrument::{CurrencyPair, Instrument};
 use super::market::Prices;
-use serde::{Deserialize, Serialize};
+use serde::de::{self, MapAccess, Visitor};
+use serde::ser::{self, SerializeMap};
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use std::collections::HashMap;
+use std::fmt;
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct PerformanceMetrics {
@@ -60,8 +63,56 @@ impl CashAccounts {
     }
 }
 
+fn serialize_holdings<S>(
+    holdings: &HashMap<Instrument, f64>,
+    serializer: S,
+) -> Result<S::Ok, S::Error>
+where
+    S: Serializer,
+{
+    let mut map = serializer.serialize_map(Some(holdings.len()))?;
+    for (k, v) in holdings {
+        let key_str = serde_json::to_string(k).map_err(ser::Error::custom)?;
+        map.serialize_entry(&key_str, v)?;
+    }
+    map.end()
+}
+
+fn deserialize_holdings<'de, D>(deserializer: D) -> Result<HashMap<Instrument, f64>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    struct HoldingsVisitor;
+
+    impl<'de> Visitor<'de> for HoldingsVisitor {
+        type Value = HashMap<Instrument, f64>;
+
+        fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+            formatter.write_str("a map with json-stringified Instrument keys")
+        }
+
+        fn visit_map<M>(self, mut access: M) -> Result<Self::Value, M::Error>
+        where
+            M: MapAccess<'de>,
+        {
+            let mut map = HashMap::with_capacity(access.size_hint().unwrap_or(0));
+            while let Some((key, value)) = access.next_entry::<String, f64>()? {
+                let instrument = serde_json::from_str(&key).map_err(de::Error::custom)?;
+                map.insert(instrument, value);
+            }
+            Ok(map)
+        }
+    }
+
+    deserializer.deserialize_map(HoldingsVisitor)
+}
+
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct Positions {
+    #[serde(
+        serialize_with = "serialize_holdings",
+        deserialize_with = "deserialize_holdings"
+    )]
     holdings: HashMap<Instrument, f64>,
 }
 

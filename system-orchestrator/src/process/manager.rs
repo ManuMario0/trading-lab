@@ -12,34 +12,57 @@ use crate::config::SystemConfig;
 use crate::layout::models::layout::Layout;
 use crate::layout::models::node::Node;
 
+/// Represents the runtime state of a single deployed Layout
+pub struct ProcessGroup {
+    pub layout_id: String,
+    pub processes: HashMap<String, RunningProcess>, // NodeID -> Process
+    pub port_allocator: PortAllocator,
+    pub active_edges: HashMap<String, Port>, // EdgeKey -> Port
+}
+
+impl ProcessGroup {
+    pub fn new(layout_id: String) -> Self {
+        Self {
+            layout_id,
+            processes: HashMap::new(),
+            port_allocator: PortAllocator::new(1024, 2048),
+            active_edges: HashMap::new(),
+        }
+    }
+}
+
 pub struct ProcessManager {
-    processes: HashMap<String, RunningProcess>, // Key: Node ID (UUID)
-    port_allocator: PortAllocator,
-    active_edges: HashMap<String, Port>, // Key: "source_id:target_id"
+    // Map LayoutID -> ProcessGroup
+    groups: HashMap<String, ProcessGroup>,
     system_config: SystemConfig,
 }
 
 impl ProcessManager {
     pub fn new(config: SystemConfig) -> Self {
         Self {
-            processes: HashMap::new(),
-            port_allocator: PortAllocator::new(1024, 2048), // Wider range
-            active_edges: HashMap::new(),
+            groups: HashMap::new(),
             system_config: config,
         }
     }
 
     // --- Runtime Lifecycle ---
 
-    pub fn spawn(&mut self, id: String, config: ProcessConfig) -> Result<()> {
+    pub fn spawn(&mut self, layout_id: &str, node_id: String, config: ProcessConfig) -> Result<()> {
         info!(
-            "Spawning [{}]: {} {:?}",
+            "Spawning [{}::{}] {} {:?}",
+            layout_id,
             config.name(),
             config.cmd(),
             config.args()
         );
 
-        // Calculate Hash for Diffing later
+        // Ensure group exists (should be created by deploy, but good for safety)
+        let group = self
+            .groups
+            .entry(layout_id.to_string())
+            .or_insert_with(|| ProcessGroup::new(layout_id.to_string()));
+
+        // Calculate Hash
         let mut hasher = DefaultHasher::new();
         config.cmd().hash(&mut hasher);
         config.args().hash(&mut hasher);
@@ -59,10 +82,16 @@ impl ProcessManager {
                     config.name(),
                     c.id()
                 );
-                // For diffing, we need to map id -> PID
                 if let Some(pid) = c.id() {
-                    let running = RunningProcess::new(id.clone(), pid, c, config_hash);
-                    self.processes.insert(id, running);
+                    let running = RunningProcess::new(
+                        node_id.clone(),
+                        config.category().to_string(),
+                        pid,
+                        c,
+                        config_hash,
+                        config.admin_port(),
+                    );
+                    group.processes.insert(node_id, running);
                 }
                 Ok(())
             }
@@ -73,62 +102,86 @@ impl ProcessManager {
         }
     }
 
-    pub fn stop(&mut self, id: &str) -> Result<()> {
-        if let Some(mut proc) = self.processes.remove(id) {
-            info!("Stopping process [{}] (PID: {})...", id, proc.pid);
-            // Try graceful kill first? For now hard kill or let Drop handle it?
-            // "kill_on_drop(true)" on Command handles it when we drop 'proc.child'.
-            // But we can explicitly kill to be sure.
-            let _ = proc.child.kill();
-            Ok(())
+    pub fn stop(&mut self, layout_id: &str, node_id: &str) -> Result<()> {
+        if let Some(group) = self.groups.get_mut(layout_id) {
+            if let Some(mut proc) = group.processes.remove(node_id) {
+                info!(
+                    "Stopping process [{}/{}] (PID: {})...",
+                    layout_id, node_id, proc.pid
+                );
+                let _ = proc.child.kill();
+                Ok(())
+            } else {
+                Err(anyhow::anyhow!(
+                    "Process {} not found in layout {}",
+                    node_id,
+                    layout_id
+                ))
+            }
         } else {
-            Err(anyhow::anyhow!("Process {} not found", id))
+            Err(anyhow::anyhow!("Layout {} not found", layout_id))
         }
     }
 
+    // List all processes across all layouts? Or specific?
+    // Let's list all flattened for now to keep API compat where possible,
+    // or maybe scoped. The existing API caller expected a flat list.
     pub fn list(&self) -> Vec<ProcessInfo> {
-        // We'll need to join with Layout ideally to get names if we don't store them in RunningProcess.
-        // But RunningProcess only has ID.
-        // For this refactor, we simplify. We return what we know.
-        // Or we might need to store 'name' and 'category' in RunningProcess too for easy listing?
-        // Let's assume the API or LayoutManager supplements this data, OR we add it to RunningProcess.
-        // For strict correctness, Runtime only cares about PID.
-        // But listing usually needs names.
-        // Let's iterate and return PIDs.
-        self.processes
-            .iter()
-            .map(|(id, proc)| ProcessInfo {
-                id: id.clone(),
-                status: "Running".to_string(),
-            })
-            .collect()
+        let mut list = Vec::new();
+        for group in self.groups.values() {
+            for (id, proc) in &group.processes {
+                list.push(ProcessInfo {
+                    id: id.clone(),
+                    status: "Running".to_string(),
+                });
+            }
+        }
+        list
+    }
+
+    pub fn get_engine(&self, layout_id: &str) -> Option<&RunningProcess> {
+        if let Some(group) = self.groups.get(layout_id) {
+            for proc in group.processes.values() {
+                if proc.category() == "ExecutionEngine" {
+                    return Some(proc);
+                }
+            }
+        }
+        None
     }
 
     // --- Reconciliation (Deploy) ---
 
     pub fn deploy(&mut self, layout: &Layout) -> Result<()> {
-        info!("Reconciling Runtime with Layout...");
+        let layout_id = layout.id();
+        info!("Reconciling Runtime for Layout [{}]...", layout_id);
 
-        // 1. Resolve Ports (Stable Allocation)
-        let mut next_allocator = PortAllocator::new_from_allocator(&self.port_allocator);
-        // Reset usage tracking for this pass
-        // Actually, we want to KEEP existing allocations if they are still valid in new layout
-        // But 'new_allocator' copies state?
-        // Let's refine: We need to build the *Desired* port map.
-        // If an edge exists in old and new, keep port.
-        // If new edge, allocate new port.
-        // If old edge removed, port becomes free (by not being in new map).
+        // Get or Create Group
+        // We need to be careful about ownership here.
+        // We can extract the group to work on it, then put it back?
+        // Or just work via mutable reference.
+
+        // Note: To make the borrow checker happy when calling self.resolve_config inside loop,
+        // we might need to separate the group data from 'self'.
+        // But resolve_config mostly needs SystemConfig.
+
+        let groups = &mut self.groups;
+        let group = groups
+            .entry(layout_id.to_string())
+            .or_insert_with(|| ProcessGroup::new(layout_id.to_string()));
+
+        // 1. Resolve Ports (Within this Group)
+        let mut next_allocator = PortAllocator::new_from_allocator(&group.port_allocator);
 
         let mut new_active_edges = HashMap::new();
         let mut edge_to_port = HashMap::new();
 
-        // Re-verify all desired edges
         for edge in layout.edges() {
             let key = format!("{}:{}", edge.source(), edge.target());
-            let port = if let Some(p) = self.active_edges.get(&key) {
-                *p // Keep existing
+            let port = if let Some(p) = group.active_edges.get(&key) {
+                *p
             } else {
-                next_allocator.allocate().unwrap_or(0) // Allocate new
+                next_allocator.allocate().unwrap_or(0)
             };
 
             if port != 0 {
@@ -137,21 +190,38 @@ impl ProcessManager {
             }
         }
 
-        // Update allocator state to match new reality
-        // (Simplified: We just use the 'next_allocator' which has tracked allocations?)
-        // Wait, if we reused 'p', we didn't mark it used in 'next_allocator' yet?
-        // We need a fresh allocator but marked with preserved ports.
-        // Let's correct:
-
+        // Commit Allocator (simplified, assuming monotonic growth or perfect reconstruction)
+        // Actually, let's just create a fresh allocator based on reserved ports
         let mut final_allocator = PortAllocator::new(1024, 2048);
         for (_, port) in &new_active_edges {
             final_allocator.reserve(*port);
         }
+        // *Issue*: resolve_config needs to allocate *more* ports (admin ports) dynamically.
+        // So we should pass 'final_allocator' to resolve_config?
+        // Previously verify_config called the allocator on 'self'.
+
+        // Let's temporary swap the group's allocator so helper can use it?
+        // Or refactor helper. Helper calls `self.port_allocator.allocate()`.
+
+        // Let's refactor resolve_config to take the allocator as generic or mutable arg.
 
         // 2. Resolve Configs
         let mut desired_configs = HashMap::new();
+
+        // We will do allocation inline here for admin ports
         for node in layout.nodes() {
-            if let Some((cmd, args)) = self.resolve_config(node, &edge_to_port, layout) {
+            // Note: self.resolve_config now requires &mut self to mutate internal config/allocator if needed?
+            // Actually, we passed allocator explicitly.
+            // Issue: 'resolve_config' might have been defined as mutable or not.
+            // Let's check signature.
+
+            if let Some((cmd, args, admin)) = ProcessManager::resolve_config(
+                &self.system_config,
+                node,
+                &edge_to_port,
+                layout,
+                &mut final_allocator,
+            ) {
                 desired_configs.insert(
                     node.id().to_string(),
                     ProcessConfig::new(
@@ -159,61 +229,104 @@ impl ProcessManager {
                         node.category().to_string(),
                         cmd,
                         args,
+                        admin,
                     ),
                 );
             }
         }
 
         // 3. Diff & Execute
-
-        // A. Stop removed or changed
+        // Key: NodeID
         let mut to_stop = Vec::new();
-        for (id, proc) in &self.processes {
+
+        // Check running processes in this group
+        for (id, proc) in &group.processes {
             if let Some(new_conf) = desired_configs.get(id) {
-                // Check Hash
                 let mut hasher = DefaultHasher::new();
                 new_conf.cmd().hash(&mut hasher);
                 new_conf.args().hash(&mut hasher);
                 let new_hash = hasher.finish();
 
                 if proc.config_hash != new_hash {
-                    info!("Config changed for {}", id);
+                    info!("Config changed for {} in layout {}", id, layout_id);
                     to_stop.push(id.clone());
                 }
             } else {
-                info!("Node {} removed", id);
+                info!("Node {} removed from layout {}", id, layout_id);
                 to_stop.push(id.clone());
             }
         }
 
+        // Stop
         for id in to_stop {
-            self.stop(&id)?;
+            if let Some(mut proc) = group.processes.remove(&id) {
+                let _ = proc.child.kill();
+            }
         }
 
-        // B. Spawn new or restarted
+        // Start
         for (id, config) in desired_configs {
-            if !self.processes.contains_key(&id) {
-                self.spawn(id, config)?;
+            if !group.processes.contains_key(&id) {
+                // Inline Spawn logic to avoid fighting borrow checker with `self.spawn` while holding grouped ref
+                // Or just Clone config and do it after?
+
+                // Let's clone what we need to spawn and do it here
+                // Or carefully re-use code.
+                // We'll duplicate the spawn logic slightly to avoid 'self' borrow issues.
+
+                // Hash
+                let mut hasher = DefaultHasher::new();
+                config.cmd().hash(&mut hasher);
+                config.args().hash(&mut hasher);
+                let config_hash = hasher.finish();
+
+                let child = Command::new(config.cmd())
+                    .args(config.args())
+                    .stdout(Stdio::inherit())
+                    .stderr(Stdio::inherit())
+                    .kill_on_drop(true)
+                    .spawn();
+
+                match child {
+                    Ok(c) => {
+                        info!("[{}] started (PID: {:?})", config.name(), c.id());
+                        if let Some(pid) = c.id() {
+                            let running = RunningProcess::new(
+                                id.clone(),
+                                config.category().to_string(),
+                                pid,
+                                c,
+                                config_hash,
+                                config.admin_port(),
+                            );
+                            group.processes.insert(id.clone(), running);
+                        }
+                    }
+                    Err(e) => error!("Failed to spawn {}: {}", config.name(), e),
+                }
             }
         }
 
         // 4. Commit State
-        self.port_allocator = final_allocator;
-        self.active_edges = new_active_edges;
+        group.port_allocator = final_allocator;
+        group.active_edges = new_active_edges;
 
         Ok(())
     }
 
     // --- Helper: Blueprint -> Runtime Config ---
+    // Now static-like or just using system_config, + mutable allocator
+    // --- Helper: Blueprint -> Runtime Config ---
+    // Made associated function to avoid borrowing issues
     fn resolve_config(
-        &self,
+        system_config: &SystemConfig,
         node: &Node,
         edge_ports: &HashMap<String, u16>,
         layout: &Layout,
-    ) -> Option<(String, Vec<String>)> {
+        allocator: &mut PortAllocator,
+    ) -> Option<(String, Vec<String>, u16)> {
         let mut args = Vec::new();
 
-        // Helper to find ports
         let find_port = |is_target: bool| -> Option<u16> {
             for edge in layout.edges() {
                 let matches = if is_target {
@@ -231,63 +344,72 @@ impl ProcessManager {
             None
         };
 
+        let admin = allocator.allocate().unwrap(); // Use the passed allocator
+
         match node.category() {
             "Strategy" => {
-                let input = find_port(true).unwrap_or(self.system_config.data_port);
-                let output = find_port(false).unwrap_or(self.system_config.multiplexer_input_port);
-                let admin = self.system_config.strategy_admin_port; // Single strategy MVP
+                let input = find_port(true).unwrap_or(system_config.data_port);
+                let output = find_port(false).unwrap_or(system_config.multiplexer_input_port);
 
                 args.push(format!("tcp://127.0.0.1:{}", input));
                 args.push(format!("tcp://127.0.0.1:{}", output));
                 args.push(format!("tcp://*:{}", admin));
-                Some((self.system_config.strategy_lab_path.clone(), args))
+                Some((system_config.strategy_lab_path.clone(), args, admin))
             }
             "Multiplexer" => {
+                let input = find_port(true).unwrap_or(system_config.data_port);
+                let output = find_port(false).unwrap_or(system_config.multiplexer_input_port);
+
                 args.push("--input-port".to_string());
-                args.push(self.system_config.multiplexer_input_port.to_string());
+                args.push(input.to_string());
                 args.push("--output-port".to_string());
-                args.push(self.system_config.multiplexer_port.to_string());
+                args.push(output.to_string());
                 args.push("--admin-port".to_string());
-                args.push(self.system_config.multiplexer_admin_port.to_string());
-                Some((self.system_config.multiplexer_path.clone(), args))
+                args.push(admin.to_string());
+                Some((system_config.multiplexer_path.clone(), args, admin))
             }
             "ExecutionEngine" => {
                 args.push("--admin-port".to_string());
-                args.push(self.system_config.admin_port.to_string());
+                args.push(admin.to_string());
                 args.push("--multiplexer-ports".to_string());
-                args.push(self.system_config.multiplexer_port.to_string());
+                args.push(system_config.multiplexer_port.to_string());
                 args.push("--data-port".to_string());
-                args.push(self.system_config.data_port.to_string());
+                args.push(system_config.data_port.to_string());
                 args.push("--order-port".to_string());
-                args.push(self.system_config.order_port.to_string());
-                Some((self.system_config.execution_engine_path.clone(), args))
+                args.push(system_config.order_port.to_string());
+                Some((system_config.execution_engine_path.clone(), args, admin))
             }
             "DataPipeline" => {
                 args.push("-u".to_string());
-                args.push(self.system_config.data_pipeline_path.clone());
+                args.push(system_config.data_pipeline_path.clone());
                 args.push("--port".to_string());
-                args.push(self.system_config.data_port.to_string());
-                Some(("python3".to_string(), args))
+                args.push(system_config.data_port.to_string());
+                Some(("python3".to_string(), args, admin))
             }
-            "Gateway" => Some((self.system_config.gateway_paper_path.clone(), args)),
+            "Gateway" => Some((system_config.gateway_paper_path.clone(), args, admin)),
             _ => None,
         }
     }
 
     pub async fn check_status(&mut self) {
-        let mut finished = Vec::new();
-        for (id, proc) in self.processes.iter_mut() {
-            match proc.child.try_wait() {
-                Ok(Some(status)) => {
-                    warn!("Process {} exited: {}", id, status);
-                    finished.push(id.clone());
+        for group in self.groups.values_mut() {
+            let mut finished = Vec::new();
+            for (id, proc) in group.processes.iter_mut() {
+                match proc.child.try_wait() {
+                    Ok(Some(status)) => {
+                        warn!(
+                            "Process {} in layout {} exited: {}",
+                            id, group.layout_id, status
+                        );
+                        finished.push(id.clone());
+                    }
+                    Ok(None) => {}
+                    Err(e) => error!("Wait error {}: {}", id, e),
                 }
-                Ok(None) => {}
-                Err(e) => error!("Wait error {}: {}", id, e),
             }
-        }
-        for id in finished {
-            self.processes.remove(&id);
+            for id in finished {
+                group.processes.remove(&id);
+            }
         }
     }
 }

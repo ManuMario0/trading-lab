@@ -2,7 +2,6 @@
 //!
 //! This module provides the API for the front-end dashboard.
 
-use crate::admin_client::AdminClient;
 use crate::layout::manager::LayoutManager;
 use crate::layout::models::layout::Layout;
 use crate::process::manager::ProcessManager;
@@ -13,8 +12,7 @@ use axum::{
     routing::{get, post},
     Json, Router,
 };
-use log::{error, info};
-use serde_json::Value;
+use log::info;
 use std::sync::{Arc, Mutex};
 use tokio::sync::broadcast;
 use tower_http::cors::CorsLayer;
@@ -22,21 +20,18 @@ use tower_http::cors::CorsLayer;
 // App State to share with routes
 #[derive(Clone)]
 pub struct AppState {
-    pub admin_client: Arc<AdminClient>,
     pub process_manager: Arc<Mutex<ProcessManager>>,
     pub layout_manager: Arc<LayoutManager>,
     pub tx: broadcast::Sender<String>,
 }
 
 pub async fn run_api_server(
-    admin_client: Arc<AdminClient>,
     process_manager: Arc<Mutex<ProcessManager>>,
     layout_manager: Arc<LayoutManager>,
     tx: broadcast::Sender<String>,
     port: u16,
 ) {
     let app_state = AppState {
-        admin_client,
         process_manager,
         layout_manager,
         tx,
@@ -45,13 +40,13 @@ pub async fn run_api_server(
     let app = Router::new()
         .route("/health", get(health_check))
         .route("/ws", get(ws_handler))
-        .route("/admin", post(admin_handler))
-        .route("/processes", get(process_handler))
+        .route("/processes", get(get_processes))
         .route(
             "/layout/:layout_id",
             get(get_layout).post(add_layout).delete(remove_layout),
         )
         .route("/layout/:layout_id/deploy", post(deploy_layout))
+        .route("/layout/:layout_id/wallet", get(get_wallet))
         .layer(CorsLayer::permissive())
         .with_state(app_state);
 
@@ -85,35 +80,14 @@ async fn handle_socket(mut socket: WebSocket, state: AppState) {
     }
 }
 
-// Admin Handler
-async fn admin_handler(
-    State(state): State<AppState>,
-    Json(payload): Json<Value>,
-) -> impl IntoResponse {
-    let cmd_str = payload.to_string();
-    info!("API Received Admin Command: {}", cmd_str);
-
-    match state.admin_client.send_command(&cmd_str) {
-        Ok(response) => match serde_json::from_str::<Value>(&response) {
-            Ok(v) => Json(v),
-            Err(_) => Json(serde_json::json!({"status": "RAW", "msg": response})),
-        },
-        Err(e) => {
-            error!("Admin Command Failed: {}", e);
-            Json(serde_json::json!({"status": "ERROR", "msg": e.to_string()}))
-        }
-    }
-}
-
 // Process handler
-async fn process_handler(State(state): State<AppState>) -> impl IntoResponse {
+async fn get_processes(State(state): State<AppState>) -> impl IntoResponse {
     let lst = state.process_manager.lock().unwrap().list();
 
     Json(serde_json::json!({"status": "OK", "processes": lst}))
 }
 
 // Layout Handlers
-
 async fn get_layout(
     State(state): State<AppState>,
     axum::extract::Path(layout_id): axum::extract::Path<String>,
@@ -158,5 +132,27 @@ async fn deploy_layout(
             }
         }
         None => Json(serde_json::json!({"status": "ERROR", "msg": "Layout not found"})),
+    }
+}
+
+/// We ask the wallet through the admin port of the engine, if the engine is running.
+async fn get_wallet(
+    State(state): State<AppState>,
+    axum::extract::Path(layout_id): axum::extract::Path<String>,
+) -> impl IntoResponse {
+    let cmd_str = serde_json::json!({"cmd": "WALLET"}).to_string();
+    // Find engine in list of running processes
+    let pm = state.process_manager.lock().unwrap();
+    let engine = pm.get_engine(&layout_id); // Pass layout_id
+    match engine {
+        Some(engine) => {
+            let response = engine.send_command(&cmd_str).unwrap();
+            Json(
+                serde_json::json!({"status": "OK", "wallet": serde_json::from_str::<serde_json::Value>(&response).unwrap_or(serde_json::Value::Null)}),
+            )
+        }
+        None => {
+            Json(serde_json::json!({"status": "ERROR", "msg": "Engine not found in this layout"}))
+        }
     }
 }

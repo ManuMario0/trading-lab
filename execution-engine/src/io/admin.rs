@@ -85,6 +85,12 @@ impl ZmqAdmin {
         let cmd_str = req["cmd"].as_str().unwrap_or("");
 
         match cmd_str {
+            "WALLET" => {
+                let engine_guard = engine.lock().unwrap();
+                let wallet = engine_guard.portfolios();
+                info!("Wallet: {:#?}", wallet);
+                json!({"status": "OK", "wallet": wallet})
+            }
             "KILL" => {
                 // Kill Switch for specific multiplexer or ALL?
                 // "Kill switch" usually means ALL in extremis, or specific.
