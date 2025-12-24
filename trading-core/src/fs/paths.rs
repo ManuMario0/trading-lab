@@ -20,11 +20,32 @@ impl PathManager {
         }
     }
 
-    /// Creates a PathManager from the common arguments
+    /// Creates a PathManager from the common arguments.
+    ///
+    /// Sets up `config`, `data` (common), and `temp` directories.
+    ///
+    /// # Arguments
+    ///
+    /// * `args` - Parsed CLI arguments.
+    ///
+    /// # Returns
+    ///
+    /// A new `PathManager`.
     pub fn from_args(args: &crate::args::CommonArgs) -> Self {
         Self::new(args.get_config_dir(), args.get_data_dir())
     }
 
+    /// Saves a configuration object to the `config` directory.
+    ///
+    /// # Arguments
+    ///
+    /// * `path` - Relative path inside config dir (e.g. "params.json").
+    /// * `config` - Serializable object.
+    ///
+    /// # Returns
+    ///
+    /// * `Ok(())` on success.
+    /// * `Err` on IO error.
     pub fn save_config<T>(&self, path: &Path, config: T) -> std::io::Result<()>
     where
         T: Serialize,
@@ -33,6 +54,16 @@ impl PathManager {
         fs::write(config_path, serde_json::to_string(&config)?)
     }
 
+    /// Loads a configuration object from the `config` directory.
+    ///
+    /// # Arguments
+    ///
+    /// * `path` - Relative path inside config dir.
+    ///
+    /// # Returns
+    ///
+    /// * `Ok(T)` on success.
+    /// * `Err` on IO or parse error.
     pub fn load_config<T>(&self, path: &Path) -> std::io::Result<T>
     where
         T: for<'de> Deserialize<'de>,
@@ -82,6 +113,12 @@ impl PathManager {
         Ok(data)
     }
 
+    /// Ensures all managed directories exist, creating them if necessary.
+    ///
+    /// # Returns
+    ///
+    /// * `Ok(())` if directories exist or were created.
+    /// * `Err` if creation fails.
     pub fn ensure_dirs(&self) -> std::io::Result<()> {
         std::fs::create_dir_all(&self.config_dir)?;
         std::fs::create_dir_all(&self.common_dir)?;

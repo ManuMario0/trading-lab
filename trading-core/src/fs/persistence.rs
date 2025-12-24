@@ -4,10 +4,20 @@ use serde::Serialize;
 use std::io::Write;
 use std::path::Path;
 
-/// Saves a serializable object to a file atomically
-/// 1. Serialize to buffer
-/// 2. Write to temp file
-/// 3. Rename temp file to target file (atomic on POSIX)
+/// Saves a serializable object to a file atomically.
+///
+/// This function ensures data integrity by writing to a temporary file first
+/// and then renaming it to the target path.
+///
+/// # Arguments
+///
+/// * `path` - The target file path.
+/// * `state` - The object to serialize and save.
+///
+/// # Returns
+///
+/// * `Ok(())` on success.
+/// * `Err` on serialization or IO failure.
 pub fn save_state<T: Serialize>(path: &Path, state: &T) -> Result<()> {
     // Create parent directory if needed
     if let Some(parent) = path.parent() {
@@ -30,7 +40,16 @@ pub fn save_state<T: Serialize>(path: &Path, state: &T) -> Result<()> {
     Ok(())
 }
 
-/// Loads a deserializable object from a file
+/// Loads a deserializable object from a file.
+///
+/// # Arguments
+///
+/// * `path` - The file path to read from.
+///
+/// # Returns
+///
+/// * `Ok(T)` containing the deserialized object.
+/// * `Err` if the file doesn't exist, cannot be read, or deserialization fails.
 pub fn load_state<T: DeserializeOwned>(path: &Path) -> Result<T> {
     let file = std::fs::File::open(path).context("Failed to open state file")?;
     let reader = std::io::BufReader::new(file);

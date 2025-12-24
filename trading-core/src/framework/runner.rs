@@ -1,71 +1,168 @@
-use crate::comms::zmq::{GenericPublisher, GenericSubscriber};
-use crate::framework::context::{Context, ContextBuilder};
-use crate::framework::strategy::Strategy;
-use anyhow::{Context as AnyhowContext, Result};
+//! Generic Runner for processing data streams.
+//!
+//! A `Runner` wraps an input socket, a state container, and a callback function.
+//! It manages the event loop, thread spawning, and control messages (stop, update).
 
-/// Orchestrates the execution of a Strategy.
-///
-/// The Runner handles:
-/// 1. Connecting to ZMQ input streams (Subs).
-/// 2. Connecting to ZMQ output streams (Pubs).
-/// 3. Deserializing incoming messages.
-/// 4. Updating the Context.
-/// 5. Invoking the Strategy logic.
-/// 6. Publishing the resulting Allocation.
-pub struct StrategyRunner {
-    subscriber: GenericSubscriber,
-    publisher: GenericPublisher,
-    context: Context,
+use crate::comms::socket::ReceiverSocket;
+use crate::comms::{build_subscriber, Address};
+use serde::de::DeserializeOwned;
+use std::{
+    sync::{
+        mpsc::{self, Sender},
+        Arc, Mutex,
+    },
+    thread::{self, JoinHandle},
+};
+
+/// Commands sent to control the runner's lifecycle and configuration.
+pub enum RunnerCommand {
+    /// Stop the runner loop and exit.
+    Stop,
+    /// Update the listening address at runtime.
+    UpdateAddress(Address),
 }
 
-impl StrategyRunner {
-    /// Creates a new StrategyRunner.
+/// The structure used for a runner.
+///
+/// A runner is a component that handles exactly one input channel.
+/// This is usefull as I can abstract hotswapping of listening/writing ports for the runners.
+pub struct Runner<State, Input> {
+    handle: Option<JoinHandle<()>>,
+    control_tx: Sender<RunnerCommand>,
+    _input_marker: std::marker::PhantomData<Input>,
+    _state_marker: std::marker::PhantomData<State>,
+}
+
+impl<State, Input> Runner<State, Input> {
+    /// This will create the runner and start it in a separate thread.
     ///
     /// # Arguments
     ///
-    /// * `sub_address` - ZMQ Sub address (e.g., "tcp://localhost:5555").
-    /// * `pub_address` - ZMQ Pub address (e.g., "tcp://*:5556").
-    /// * `builder` - Configuration for which data to subscribe to.
-    pub fn new(sub_address: &str, pub_address: &str, builder: ContextBuilder) -> Result<Self> {
-        // Subscribe to all topics requested by the builder
-        let topics = builder.topics;
-        let topic_refs: Vec<&str> = topics.iter().map(|s| s.as_str()).collect();
-
-        let subscriber = GenericSubscriber::new(sub_address, &topic_refs)
-            .context("Failed to create subscriber")?;
-
-        let publisher = GenericPublisher::new(pub_address).context("Failed to create publisher")?;
-
-        Ok(Self {
-            subscriber,
-            publisher,
-            context: Context::new(),
-        })
+    /// * `state` - Shared thread-safe access to the microservice state.
+    /// * `callback` - To be executed for each incoming message.
+    /// * `address` - The initial address to listen on.
+    ///
+    /// # Returns
+    ///
+    /// A new `Runner` instance holding the thread handle and control channel.
+    pub fn new(
+        state: Arc<Mutex<State>>,
+        callback: Box<dyn FnMut(&mut State, Input) + Send>,
+        address: Address,
+    ) -> Self
+    where
+        State: Send + 'static,
+        Input: Sync + Send + DeserializeOwned + 'static,
+    {
+        let (control_tx, control_rx) = mpsc::channel();
+        let handle = thread::spawn(move || {
+            // Create a runtime for the async runner loop
+            let rt = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .unwrap();
+            rt.block_on(runner_loop(control_rx, state, callback, &address));
+        });
+        Self {
+            handle: Some(handle),
+            control_tx,
+            _input_marker: std::marker::PhantomData,
+            _state_marker: std::marker::PhantomData,
+        }
     }
 
-    /// Starts the main event loop.
-    pub fn run<S: Strategy>(&mut self, strategy: &mut S) -> Result<()> {
-        loop {
-            // 1. Receive generic bytes
-            let (topic, data) = self.subscriber.receive()?;
+    /// Signals the runner to stop and joins the thread.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the thread join fails or channel send fails (which shouldn't happen in normal operation).
+    pub fn stop(mut self) {
+        self.control_tx.send(RunnerCommand::Stop).unwrap();
+        self.handle.take().unwrap().join().unwrap();
+    }
 
-            // 2. Deserialize Batch
-            if topic.starts_with("md.") {
-                // Now expecting a BATCH of updates
-                let batch: crate::model::market_data::MarketDataBatch =
-                    serde_json::from_slice(&data)
-                        .context("Failed to deserialize MarketDataBatch")?;
+    /// Updates the listening address of the running loop.
+    ///
+    /// # Arguments
+    ///
+    /// * `address` - The new address to bind/connect to.
+    pub fn update_address(&mut self, address: Address) {
+        self.control_tx
+            .send(RunnerCommand::UpdateAddress(address))
+            .unwrap();
+    }
+}
 
-                self.context.clear();
-                // Extend the context with the batch updates
-                self.context.set_price_updates(batch);
+/// A trait for type-erased runners, allowing them to be stored in a homogeneous collection.
+pub(crate) trait ManagedRunner: Send {
+    /// Stops the runner.
+    fn stop(self: Box<Self>);
+    /// Updates the runner's address.
+    fn update_address(&mut self, address: Address);
+}
 
-                // 3. Invoke Strategy
-                if let Some(allocation) = strategy.on_event(&self.context) {
-                    // 4. Serialize & Publish Output
-                    let output_bytes = serde_json::to_vec(&allocation)?;
-                    self.publisher.publish("allocation", &output_bytes)?;
-                }
+impl<State, Input> ManagedRunner for Runner<State, Input>
+where
+    State: Send + 'static,
+    Input: Sync + Send + DeserializeOwned + 'static,
+{
+    fn stop(self: Box<Self>) {
+        (*self).stop()
+    }
+
+    fn update_address(&mut self, address: Address) {
+        self.update_address(address)
+    }
+}
+
+async fn runner_loop<State, Input>(
+    control_rx: mpsc::Receiver<RunnerCommand>,
+    state: Arc<Mutex<State>>,
+    mut callback: Box<dyn FnMut(&mut State, Input) + Send>,
+    address: &Address,
+) where
+    Input: DeserializeOwned + Sync + Send + 'static,
+{
+    // First setup the listener on the address
+    let mut listener: ReceiverSocket<Input> = build_subscriber(address).unwrap();
+    let mut busy_count = 0;
+
+    loop {
+        let mut received_work = false;
+
+        // 1. Try to receive a message
+        match listener.try_recv().await {
+            Ok(msg) => {
+                // Call the callback
+                callback(&mut state.lock().unwrap(), msg);
+                received_work = true;
+            }
+            Err(_) => (),
+        }
+
+        // 2. Try to receive a control message
+        match control_rx.try_recv() {
+            Ok(RunnerCommand::Stop) => break,
+            Ok(RunnerCommand::UpdateAddress(addr)) => {
+                listener = build_subscriber(&addr).unwrap();
+                received_work = true;
+            }
+            Err(_) => (),
+        }
+
+        // 3. Backoff Strategy (Hybrid Spin/Sleep)
+        if received_work {
+            busy_count = 0;
+        } else {
+            busy_count += 1;
+            if busy_count < 2000 {
+                // High Perf: Yield to OS but stay scheduled (Nanoseconds/Microseconds latency)
+                std::thread::yield_now();
+            } else {
+                // Low Power: Sleep if really idle (1ms latency)
+                // Cap the counter to avoid overflow, just stay in sleep mode
+                busy_count = 2000;
+                tokio::time::sleep(tokio::time::Duration::from_millis(1)).await;
             }
         }
     }

@@ -70,3 +70,52 @@ The ultimate evolution is to bridge the gap between "Ease of Design" and "Execut
 - **Zero Overhead**: Unlike interpreted languages (Python), your final strategy runs as native machine code.
 - **Safety**: The Visual Editor prevents syntax errors; the compiler catches type errors before deployment.
 - **Iteration**: You get the prototyping speed of a GUI with the production performance of C++.
+
+---
+
+## 8. Reliability Architecture (The "Paranoid" Engine)
+
+We prioritize **Safety** and **Survivability** above all else. The system is designed to assume that Code Bugs, OS Crashes, and Hardware Failures *will* occur.
+
+### 8.1 Process Isolation (The "Seatbelt")
+- **Concept**: **One Strategy = One Process**.
+- **Reasoning**: If a Strategy Logic contains a bug (Segfault, Panic, Infinite Loop), it *only* crashes its own process. It does NOT take down the Execution Engine or other Strategies.
+- **Real vs. Virtual Runners**:
+  - **Virtual Runner**: The specific logic (e.g., "TrendFollowStrategy"). This is the Code.
+  - **Runner Host (Real)**: The generic OS process wrapper (Standardized SDK) that loads the Virtual Runner.
+  - **Development**: We can run multiple Virtual Runners in one process for fast testing.
+  - **Production**: We deploy 1 Virtual Runner per 1 Host Process for maximum isolation.
+
+### 8.2 High Availability: Active-Warm-Standby
+For critical components (Execution Engine, Core Strategies), we run redundant pairs.
+- **Active Node**:
+  - Consumes Market Data.
+  - Updates Internal State (Positions, Indicators).
+  - **Sends Orders** to the Exchange.
+- **Warm Standby Node**:
+  - Consumes the *same* Market Data.
+  - Updates the *same* Internal State.
+  - **Suppresses Orders** (Output Gate is closed).
+- **Synchronization**:
+  - We use the **Drop Copy** (Trade Capture) feed from the Exchange to keep the Standby in sync with executions. We do *not* rely on the Active node to tell the Standby what happened (because the Active node might be dead).
+- **Failover**:
+  - If Active dies, the Supervisor promotes Standby to Active.
+  - Setup is instantaneous because the Standby is already "Warm" (state is current).
+
+### 8.3 Supervisor Reliability (Consensus)
+- **Problem**: The Supervisor is a Single Point of Failure (SPOF).
+- **Solution**: **State Machine Replication (SMR)**.
+  - The Supervisor itself is a cluster (e.g., 3 nodes).
+  - Uses **Raft Consensus** to agree on the "Configuration State" (Who is Active? Who is Standby? What processes should be running?).
+  - Ensures that if the Leader Supervisor dies, a Follower takes over immediately without "Split Brain" (two supervisors launching duplicate strategies).
+
+### 8.4 Disaster Recovery (DR) Hierarchy
+We adopt a tiered approach to reliability:
+
+| Tier | Threat Model | Solution | Recovery Time |
+| :--- | :--- | :--- | :--- |
+| **Phase 1 (App)** | Segfault / Panic | **Process Isolation** + Auto-Restart | Seconds |
+| **Phase 2 (Server)** | Hardware / OS Freeze | **Local HA** (Active/Standby in same zone) | Milliseconds |
+| **Phase 3 (Region)** | Data Center / Cloud Outage | **Async Replication** (Cross-Region) | Minutes |
+
+*Note: Phase 3 involves asynchronous replication to a different geographic region (e.g., AWS East -> AWS West) to survive total regional failures.*

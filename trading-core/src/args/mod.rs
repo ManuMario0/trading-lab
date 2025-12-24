@@ -9,6 +9,8 @@ use clap::Parser;
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
+use crate::comms::Address;
+
 /// Holds the standard configuration parameters parsed from the command line.
 ///
 /// These arguments are expected to be present for every microservice invocation.
@@ -19,9 +21,13 @@ pub struct CommonArgs {
     #[arg(short, long, default_value = "unknown_service")]
     service_name: String,
 
-    /// Port for the admin server to listen on
-    #[arg(long, default_value_t = 8080)]
-    admin_port: u16,
+    /// Port for incoming ZMQ messages (SUB) - default 0 implies ephemeral/unused in some contexts, but usually required.
+    #[arg(long, default_value = "tcp://127.0.0.1:5555")]
+    admin_route: String,
+
+    /// Port for outgoing ZMQ messages (PUB)
+    #[arg(long, default_value = "tcp://127.0.0.1:5556")]
+    output_port: String,
 
     /// Path to the configuration directory
     #[arg(long, default_value = "./config")]
@@ -41,9 +47,14 @@ impl CommonArgs {
         CommonArgs::parse_from(args)
     }
 
-    /// Returns the port number configured for the Admin API server.
-    pub fn get_admin_port(&self) -> u16 {
-        self.admin_port
+    /// Returns the admin port (SUB).
+    pub fn get_admin_route(&self) -> Address {
+        Address::Zmq(self.admin_route.clone())
+    }
+
+    /// Returns the output port (PUB).
+    pub fn get_output_port(&self) -> Address {
+        Address::Zmq(self.output_port.clone())
     }
 
     /// Returns the path to the configuration directory.

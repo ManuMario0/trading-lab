@@ -16,4 +16,6 @@ pub mod comms;
 pub mod ffi;
 pub mod framework;
 pub mod fs;
+
+pub mod microservice;
 pub mod model;

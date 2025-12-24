@@ -1,3 +1,7 @@
+//! Persistent database for managing instrument definitions.
+//!
+//! This module handles loading, saving, and querying instruments from a local JSON file.
+
 use crate::fs::{load_state, save_state, PathManager};
 use crate::model::instrument::InstrumentId;
 use crate::model::Instrument;
@@ -30,6 +34,15 @@ impl InstrumentDB {
     /// Loads the database from the standard location using the PathManager.
     ///
     /// The standard filename is `instruments.json` inside the `data` directory.
+    ///
+    /// # Arguments
+    ///
+    /// * `path_manager` - The `PathManager` instance used to resolve the file path.
+    ///
+    /// # Returns
+    ///
+    /// * `Ok(InstrumentDB)` with loaded data if successful.
+    /// * `Err` if parsing fails (note: missing file results in an empty DB).
     pub fn load(path_manager: &PathManager) -> Result<Self> {
         let mut db = Self::new(path_manager.get_common_file_path(INSTRUMENT_DB_FILE_NAME));
 
@@ -42,6 +55,11 @@ impl InstrumentDB {
     }
 
     /// Reloads the database content from disk, replacing in-memory state.
+    ///
+    /// # Returns
+    ///
+    /// * `Ok(())` if successful.
+    /// * `Err` if reading or deserialization fails.
     pub fn sync(&mut self) -> Result<()> {
         if !self.file_path.exists() {
             // Nothing to load, just keep current state (or clear? usually sync implies "make like disk")
@@ -58,6 +76,11 @@ impl InstrumentDB {
     }
 
     /// Saves the current in-memory state to disk.
+    ///
+    /// # Returns
+    ///
+    /// * `Ok(())` if successful.
+    /// * `Err` if writing fails.
     pub fn save(&self) -> Result<()> {
         save_state(&self.file_path, &self.instruments)
             .with_context(|| format!("Failed to save instruments to {:?}", self.file_path))?;
@@ -65,14 +88,30 @@ impl InstrumentDB {
     }
 
     /// Retrieves an instrument by its ID.
+    ///
+    /// # Arguments
+    ///
+    /// * `id` - The `InstrumentId` to search for.
+    ///
+    /// # Returns
+    ///
+    /// * `Some(&Instrument)` if found.
+    /// * `None` if not found.
     pub fn get(&self, id: InstrumentId) -> Option<&Instrument> {
         self.instruments.get(&id)
     }
 
     /// Adds or updates an instrument and persists the change to disk immediately.
     ///
-    /// To perform batch updates without saving every time, access the internal map directly
-    /// (not exposed yet) or add a batch method. For now, safety defaults to immediate save.
+    /// # Arguments
+    ///
+    /// * `id` - The ID of the instrument.
+    /// * `instrument` - The full instrument definition.
+    ///
+    /// # Returns
+    ///
+    /// * `Ok(())` if successfully saved.
+    /// * `Err` if persistence fails.
     pub fn set(&mut self, id: InstrumentId, instrument: Instrument) -> Result<()> {
         self.instruments.insert(id, instrument);
         self.save()

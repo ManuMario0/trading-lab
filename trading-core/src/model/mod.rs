@@ -9,6 +9,7 @@
 //! - [`order`]: Defines trading orders (Limit, Market, Stop).
 
 pub mod allocation;
+pub mod identity;
 pub mod instrument;
 pub mod instrument_db;
 pub mod market_data;

@@ -13,6 +13,11 @@ pub struct Context {
 }
 
 impl Context {
+    /// Creates a new empty Context.
+    ///
+    /// # Returns
+    ///
+    /// A new `Context` with empty market data.
     pub fn new() -> Self {
         Self {
             price_updates: MarketDataBatch::new(Vec::new()),
@@ -23,6 +28,11 @@ impl Context {
         self.price_updates.clear();
     }
 
+    /// Replaces the current price updates with a new batch.
+    ///
+    /// # Arguments
+    ///
+    /// * `updates` - The new `MarketDataBatch`.
     pub fn set_price_updates(&mut self, updates: MarketDataBatch) {
         self.price_updates = updates;
     }
@@ -40,6 +50,11 @@ pub struct ContextBuilder {
 }
 
 impl ContextBuilder {
+    /// Creates a new ContextBuilder.
+    ///
+    /// # Returns
+    ///
+    /// A new builder with no subscriptions.
     pub fn new() -> Self {
         Self { topics: Vec::new() }
     }

@@ -1,3 +1,7 @@
+//! Defines the data models for tradable instruments.
+//!
+//! This module contains `Instrument` enum and specific structs like `Stock`, `Future`, and `OptionContract`.
+
 use serde::{Deserialize, Serialize};
 
 pub type InstrumentId = usize;
@@ -9,11 +13,13 @@ pub enum Instrument {
     Option(OptionContract),
 }
 
+/// Represents a Futures contract.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Future {
     // Stub
 }
 
+/// Represents an Options contract.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct OptionContract {
     // Stub
@@ -50,6 +56,20 @@ pub struct Stock {
 
 impl Stock {
     /// Creates a new Stock instance.
+    ///
+    /// # Arguments
+    ///
+    /// * `id` - The unique identifier for the stock (internal ID).
+    /// * `symbol` - The ticker symbol (e.g., "AAPL").
+    /// * `exchange` - The exchange name (e.g., "NASDAQ").
+    /// * `sector` - The economic sector.
+    /// * `industry` - The specific industry.
+    /// * `country` - The country of domicile.
+    /// * `currency` - The trading currency.
+    ///
+    /// # Returns
+    ///
+    /// A new `Stock` instance.
     pub fn new(
         id: usize,
         symbol: impl Into<String>,
@@ -68,5 +88,32 @@ impl Stock {
             country: country.into(),
             currency: currency.into(),
         }
+    }
+    pub fn get_id(&self) -> InstrumentId {
+        self.id
+    }
+
+    pub fn get_symbol(&self) -> &str {
+        &self.symbol
+    }
+
+    pub fn get_exchange(&self) -> &str {
+        &self.exchange
+    }
+
+    pub fn get_sector(&self) -> &str {
+        &self.sector
+    }
+
+    pub fn get_industry(&self) -> &str {
+        &self.industry
+    }
+
+    pub fn get_country(&self) -> &str {
+        &self.country
+    }
+
+    pub fn get_currency(&self) -> &str {
+        &self.currency
     }
 }
