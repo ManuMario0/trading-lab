@@ -99,4 +99,8 @@ impl MarketDataBatch {
     pub fn clear(&mut self) {
         self.updates.clear();
     }
+
+    pub fn add_update(&mut self, update: PriceUpdate) {
+        self.updates.push(update);
+    }
 }

@@ -23,6 +23,9 @@ pub mod ffi {
 
         // --- Model: Order ---
         type Order;
+        type OrderSide;
+        type OrderType;
+
         fn get_id(self: &Order) -> &str;
         fn get_instrument_id(self: &Order) -> &str;
         fn get_side_i32(self: &Order) -> i32;
@@ -65,18 +68,29 @@ pub mod ffi {
         fn get_instrument_id(self: &PriceUpdate) -> usize;
         fn get_price(self: &PriceUpdate) -> f64;
         fn get_timestamp(self: &PriceUpdate) -> u64;
+        fn new_price_update(instrument_id: usize, price: f64, timestamp: u64) -> Box<PriceUpdate>;
 
         type MarketDataBatch;
+        fn new_market_data_batch() -> Box<MarketDataBatch>;
         fn get_count(self: &MarketDataBatch) -> usize;
         fn get_update_at(self: &MarketDataBatch, index: usize) -> &PriceUpdate;
 
+        #[cxx_name = "add_update"]
+        fn add_update_boxed(self: &mut MarketDataBatch, update: Box<PriceUpdate>);
+
+        fn clear(self: &mut MarketDataBatch);
+
         // --- Model: Allocation ---
         type Allocation;
+        fn new_allocation(source_name: &str, source_identifier: usize) -> Box<Allocation>;
         fn get_id(self: &Allocation) -> usize;
         fn get_source(self: &Allocation) -> &str;
         fn get_timestamp_u64(self: &Allocation) -> u64;
+        // In Allocation
         fn has_position(self: &Allocation, instrument_id: usize) -> bool;
+        fn get_position_quantity(self: &Allocation, instrument_id: usize) -> f64;
         fn get_position_copy(self: &Allocation, instrument_id: usize) -> Box<Position>;
+        fn update_position(self: &mut Allocation, instrument_id: usize, quantity: f64);
 
         type Position;
         fn get_instrument_id(self: &Position) -> usize;
@@ -92,6 +106,64 @@ pub mod ffi {
         type Registry;
         fn new_registry() -> Box<Registry>;
         fn get_parameters_list(self: &Registry) -> Vec<String>;
+
+        // --- Service & Config ---
+        type Configuration;
+        type Microservice;
+
+        fn new_strategy_configuration(callback_ptr: usize, user_data: usize) -> Box<Configuration>;
+        fn new_microservice(args: Box<CommonArgs>, config: Box<Configuration>)
+            -> Box<Microservice>;
+        fn run(self: &mut Microservice);
+    }
+}
+
+// --- Internal Definitions for Service ---
+
+use crate::microservice::configuration::Configuration as CoreConfiguration;
+use crate::microservice::Microservice as CoreMicroservice;
+
+struct FfiState;
+
+pub struct Configuration(CoreConfiguration<FfiState>);
+pub struct Microservice(Option<CoreMicroservice<FfiState>>);
+
+fn new_strategy_configuration(callback_ptr: usize, user_data: usize) -> Box<Configuration> {
+    let callback: extern "C" fn(*const MarketDataBatch, usize) -> *mut Allocation =
+        unsafe { std::mem::transmute(callback_ptr) };
+
+    // Create the Rust closure that calls the C callback
+    let market_data_callback = Box::new(
+        move |_state: &mut FfiState, batch: &MarketDataBatch| -> Allocation {
+            let result_ptr = callback(batch, user_data);
+            if result_ptr.is_null() {
+                use crate::model::identity::Identity;
+                Allocation::new(Identity::new("strategy", "1.0.0", 0))
+            } else {
+                unsafe { *Box::from_raw(result_ptr) }
+            }
+        },
+    );
+
+    let config = CoreConfiguration::new_strategy(market_data_callback);
+    Box::new(Configuration(config))
+}
+
+fn new_microservice(args: Box<CommonArgs>, config: Box<Configuration>) -> Box<Microservice> {
+    let initial_state = || FfiState;
+    let core_config = config.0;
+
+    let ms = CoreMicroservice::new(*args, initial_state, core_config);
+    Box::new(Microservice(Some(ms)))
+}
+
+impl Microservice {
+    fn run(&mut self) {
+        if let Some(ms) = self.0.take() {
+            ms.run();
+        } else {
+            eprintln!("Microservice already ran or invalid state.");
+        }
     }
 }
 
@@ -150,17 +222,24 @@ fn new_stock(
     ))
 }
 
-fn new_registry() -> Box<Registry> {
-    Box::new(Registry::new())
+fn new_price_update(instrument_id: usize, price: f64, timestamp: u64) -> Box<PriceUpdate> {
+    Box::new(PriceUpdate::new(instrument_id, price, timestamp))
 }
 
-impl Registry {
-    fn get_parameters_list(&self) -> Vec<String> {
-        self.get_parameters()
-            .iter()
-            .map(|p| p.get_name().to_string())
-            .collect()
+fn new_market_data_batch() -> Box<MarketDataBatch> {
+    Box::new(MarketDataBatch::new(Vec::new()))
+}
+
+impl MarketDataBatch {
+    fn add_update_boxed(&mut self, update: Box<PriceUpdate>) {
+        self.add_update(*update);
     }
+}
+
+fn new_allocation(source_name: &str, source_identifier: usize) -> Box<Allocation> {
+    use crate::model::identity::Identity;
+    let identity = Identity::new(source_name, "1.0.0", source_identifier);
+    Box::new(Allocation::new(identity))
 }
 
 impl Allocation {
@@ -172,18 +251,31 @@ impl Allocation {
         self.get_position(instrument_id).is_some()
     }
 
+    fn get_position_quantity(&self, instrument_id: usize) -> f64 {
+        self.get_position(instrument_id)
+            .map(|p| p.get_quantity())
+            .unwrap_or(0.0)
+    }
+
     fn get_position_copy(&self, instrument_id: usize) -> Box<Position> {
         let pos = self.get_position(instrument_id);
         if let Some(p) = pos {
             Box::new(p.clone())
         } else {
-            // Return a default/empty position or handle error better?
-            // For now, return a zero-quantity position with ID 0 to indicate not found/safe failure
-            // or we could panic, but panic crashes the FFI boundary.
-            // Let's assume ID match is checked by caller in robust C++, or return dummy.
-            // Correct approach: Result<Box<Position>> but cxx exception handling needed.
-            // Simpler: Return dummy.
             Box::new(Position::new(0, 0.0))
         }
+    }
+}
+
+fn new_registry() -> Box<Registry> {
+    Box::new(Registry::new())
+}
+
+impl Registry {
+    fn get_parameters_list(&self) -> Vec<String> {
+        self.get_parameters()
+            .iter()
+            .map(|p| p.get_name().to_string())
+            .collect()
     }
 }
