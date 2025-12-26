@@ -18,7 +18,6 @@ impl DummyStrategy {
             allocation: Allocation::new(trading_core::model::identity::Identity::new(
                 "dummy_strategy",
                 "1.0",
-                1,
             )),
             allocation_amount,
         }
@@ -60,7 +59,7 @@ fn main() -> Result<()> {
     ));
 
     // 4. Create and Run Microservice
-    let service = Microservice::new(args, initial_state, config);
+    let service = Microservice::new(initial_state, config);
 
     service.run();
 

@@ -15,7 +15,7 @@ pub mod instrument_db;
 pub mod market_data;
 pub mod order;
 
-pub use allocation::{Allocation, TargetPortfolio};
+pub use allocation::Allocation;
 pub use instrument::Instrument;
 pub use instrument::InstrumentId;
 pub use instrument_db::InstrumentDB;

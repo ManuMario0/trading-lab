@@ -24,19 +24,32 @@ pub struct Microservice<State> {
 impl<State> Microservice<State> {
     /// Creates a new microservice instance.
     ///
-    /// The microservice acts as the central hub for the application, initializing
-    /// core components like the path manager, admin registry, and state container.
+    /// This constructor will automatically parse command-line arguments.
     ///
     /// # Arguments
     ///
-    /// * `args` - Parsed command-line arguments.
     /// * `initial_state` - A closure that produces the initial state.
     /// * `configuration` - The network/strategy configuration.
     ///
     /// # Returns
     ///
     /// A new `Microservice` instance.
-    pub fn new<F>(args: CommonArgs, initial_state: F, configuration: Configuration<State>) -> Self
+    pub fn new<F>(initial_state: F, configuration: Configuration<State>) -> Self
+    where
+        F: FnOnce() -> State,
+    {
+        let args = CommonArgs::new();
+        Self::new_with_args(args, initial_state, configuration)
+    }
+
+    /// Creates a new microservice instance with provided arguments.
+    ///
+    /// Useful for testing or manual injection.
+    pub fn new_with_args<F>(
+        args: CommonArgs,
+        initial_state: F,
+        configuration: Configuration<State>,
+    ) -> Self
     where
         F: FnOnce() -> State,
     {

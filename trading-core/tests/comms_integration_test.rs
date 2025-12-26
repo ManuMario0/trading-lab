@@ -16,7 +16,9 @@ async fn test_zmq_pipeline_end_to_end() -> Result<()> {
     use trading_core::comms::address::Address;
 
     // 1. Setup Identities
-    let source_identity = Identity::new("test_strategy", "1.0", 1);
+    use trading_core::args::CommonArgs;
+    CommonArgs::set_mock(CommonArgs::default_for_test());
+    let source_identity = Identity::new("test_strategy", "1.0");
 
     // 2. Setup Ports (Use non-standard ports to avoid conflicts)
     // Note: Address::zmq_tcp adds "tcp://" prefix and port.

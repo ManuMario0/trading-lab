@@ -45,7 +45,7 @@ impl Position {
 /// Represents a target allocation of instruments.
 /// This is used by strategies to communicate their desired holdings to the execution engine.
 /// It does not track cash, costs, or PnL.
-#[derive(Debug, Default, Serialize, Deserialize)]
+#[derive(Debug, Default, Clone, Serialize, Deserialize)]
 pub struct Allocation {
     /// The ID of the allocation.
     id: usize,
@@ -126,14 +126,6 @@ impl Allocation {
     }
 }
 
-/// Represents a simplified portfolio target for multiplexing.
-/// It contains a list of instrument IDs and their desired weights (0.0 to 1.0, or -1.0 to 1.0).
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct TargetPortfolio {
-    pub multiplexer_id: String,
-    pub target_weights: HashMap<InstrumentId, f64>,
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -141,7 +133,7 @@ mod tests {
 
     #[test]
     fn test_allocation_update() {
-        let mut allocation = Allocation::new(Identity::new("strategy", "1.0", 1));
+        let mut allocation = Allocation::new(Identity::new("strategy", "1.0"));
 
         // Add position
         allocation.update_position(1, 10.0);

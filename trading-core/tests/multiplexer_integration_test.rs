@@ -1,3 +1,4 @@
+use clap::Parser;
 use std::thread;
 use std::time::Duration;
 use trading_core::admin::command::{AdminCommand, AdminPayload};
@@ -15,10 +16,11 @@ struct TestState;
 fn test_multiplexer_dynamic_add_strategy() {
     // 1. Setup Addresses
     // Use high ports to avoid conflicts
-    let admin_port = 60001;
-    let strategy_1_port = 60002;
-    let strategy_2_port = 60003;
-    let execution_port = 60004;
+    // Use high ports to avoid conflicts
+    let admin_port = 61001;
+    let strategy_1_port = 61002;
+    let strategy_2_port = 61003;
+    let execution_port = 61004;
 
     let admin_addr_str = format!("tcp://127.0.0.1:{}", admin_port);
     let strategy_1_addr = Address::zmq_tcp("127.0.0.1", strategy_1_port);
@@ -28,7 +30,7 @@ fn test_multiplexer_dynamic_add_strategy() {
 
     // 2. Setup Dummy Publishers (Strategies)
     let mut publisher1 = build_publisher::<Allocation>(&strategy_1_addr).unwrap();
-    let mut publisher2 = build_publisher::<Allocation>(&strategy_2_addr).unwrap();
+    let _publisher2 = build_publisher::<Allocation>(&strategy_2_addr).unwrap();
 
     // 3. Setup Dummy Subscriber (Execution Engine)
     // We bind here to behave like the execution engine server if it was SUB (wait, normally execution engine is SUB?)
@@ -36,32 +38,6 @@ fn test_multiplexer_dynamic_add_strategy() {
     // Strategy (PUB) -> Multiplexer (SUB / PUB) -> Execution Engine (SUB).
     // So Multiplexer connects to Strategies (SUB connects to PUB).
     // And Multiplexer connects to Execution Engine (PUB connects to SUB).
-    // Wait, ZMQ PUB/SUB direction:
-    // Strategies bind PUB. Multiplexer connects SUB. Correct.
-    // Multiplexer should bind PUB? Or connect PUB?
-    // Usually, the centralized component binds.
-    // If Execution Engine is a service, it binds SUB or PULL?
-    // ZmqPublisher::new connects or binds?
-    // Let's check comms implementation. Usually Publisher binds, Subscriber connects.
-    // BUT ZMQ supports either.
-    // In `trading-core`, `ZmqSubscriber` connects by default (we checked `connect` impl).
-    // `ZmqPublisher` likely binds.
-
-    // So if Multiplexer connects to Execution Engine:
-    // Execution Engine (SUB) Binds.
-    // Multiplexer (PUB) Connects.
-
-    // Let's create a Subscriber that BINDS.
-    // `build_subscriber` calls `ZmqSubscriber::new`.
-    // We need to check if `ZmqSubscriber::new` binds or connects.
-    // If it connects, then we need a Publisher that binds.
-    // IF Multiplexer is PUB, it connects.
-    // So Execution Engine must be SUB and BIND.
-    // BUT `ZmqSubscriber::new` connects.
-    // Use `ZmqSubscriber::new_bind`? It doesn't exist yet.
-    // Maybe we just rely on standard: Publisher Binds, Subscriber connects.
-    // Strategies (PUB - Bind) -> Multiplexer (SUB - Connect). This works.
-    // Multiplexer (PUB - Bind) -> Execution Engine (SUB - Connect).
 
     // So Multiplexer needs to BIND its output.
     // `run_multiplexer` calls `build_publisher(&output_addr)`.
@@ -75,48 +51,32 @@ fn test_multiplexer_dynamic_add_strategy() {
 
     // 4. Launch Multiplexer in a thread
     let handle = thread::spawn(move || {
-        // Mock Args
-        let args = CommonArgs::parse_args(vec![
+        // Mock Args: Use parse_from directly to ensure all required args are present and avoid clap panic
+        let args = CommonArgs::parse_from(vec![
             "multiplexer_test".to_string(),
             "--admin-route".to_string(),
             admin_addr_str,
-            "--output-port".to_string(), // This is the PUB address
+            "--output-port".to_string(),
             execution_addr_str,
+            "--input-port".to_string(),
+            "tcp://127.0.0.1:0".to_string(), // Dummy unused input port
             "--service-name".to_string(),
             "multiplexer".to_string(),
+            "--service-id".to_string(),
+            "1".to_string(),
             "--config-dir".to_string(),
             "/tmp/trading_test_config".to_string(),
             "--data-dir".to_string(),
             "/tmp/trading_test_data".to_string(),
         ]);
 
-        // Address Book: Map "execution_engine" to output port?
-        // Wait, `Multiplexer::run` looks up "execution_engine".
-        // `args.get_output_port` returns the output port.
-        // But `Configuration::run` uses `address_book` passed by `Microservice::run`.
-        // `Microservice::run` currently passes an EMPTY address_book (Stub).
-        // THIS IS A PROBLEM.
-        // I need to update `Microservice::run` to populate address book or use args.
-        // `args` has `output_port`.
-        // The simple fix for the test is to assume `address_book` is somehow populated or mock it.
-        // Since `Microservice::run` creates an empty map, `Multiplexer::run` will FAIL to find "execution_engine".
+        // Address Book: Map "execution_engine" to output port
+        // `Microservice::run` populates "allocation" -> args.get_output_port().
 
-        // Quick Fix for Test:
-        // We can't easily modify `Microservice::run` logic from here without changing source.
-        // I should have populated `address_book` in `Microservice::run`.
-        // Let's assume I fix `Microservice::run` to put `execution_engine` -> `args.output_port`.
-        // Or I can just manually construct `Multiplexer` and run it, bypassing `Microservice`?
-        // But `Multiplexer` struct is private or difficult to construct?
-        // `Configuration::new_multiplexer()` returns `Configuration` which has private builder.
-
-        // I MUST fix `Microservice::run` to populate `address_book`.
-
-        // BUT, I'll proceed keeping this in mind.
-        // I will write the test assuming it works, then fix `Microservice::run` in the next step if verify fails (or preemptively).
-        // Actually, I should preemptively fix `Microservice::run` to use `args.get_output_port()` for "execution_engine" or similar defaults.
-
-        let config = Configuration::new_multiplexer();
-        let service = Microservice::new(args, || TestState, config);
+        let config = Configuration::new_multiplexer(Box::new(
+            |_state: &mut TestState, allocation: Allocation| allocation,
+        ));
+        let service = Microservice::new_with_args(args, || TestState, config);
         service.run();
     });
 
@@ -130,11 +90,6 @@ fn test_multiplexer_dynamic_add_strategy() {
 
     // 6. Test Loop
     let mut test_subscriber = build_subscriber::<Allocation>(&execution_addr).unwrap();
-    // Re-verify direction:
-    // Multiplexer (PUB) on Port 60004.
-    // Subscriber (SUB) connects to 60004.
-    // If `build_subscriber` calls connect, and `build_publisher` calls bind.
-    // Yes.
 
     // Command 1: Add Strategy 1
     let cmd = AdminCommand::AddStrategy {
@@ -150,15 +105,7 @@ fn test_multiplexer_dynamic_add_strategy() {
     thread::sleep(Duration::from_millis(500)); // Allow connect
 
     // Publish data from Strategy 1
-    let alloc1 = Allocation::default(); // Add identifiable data if possible
-                                        // Allocation fields are private? Check `allocation.rs`.
-                                        // Default is all 0/empty.
-                                        // `SenderSocket` send is async. `build_publisher` returns `SenderSocket`.
-                                        // We need async runtime for sending?
-                                        // `SenderSocket` wraps `TransportOutput`. `ZmqPublisher` implements it.
-                                        // `ZmqPublisher::send` is likely async or blocking? zmq crate is blocking usually.
-                                        // `SendEndpoint` trait is async.
-                                        // So we need `block_on` to send.
+    let alloc1 = Allocation::default();
 
     let rt = tokio::runtime::Runtime::new().unwrap();
     rt.block_on(async {
@@ -166,7 +113,7 @@ fn test_multiplexer_dynamic_add_strategy() {
     });
 
     // Receive
-    let received = rt.block_on(async {
+    let _received = rt.block_on(async {
         // try_recv or recv
         test_subscriber.recv().await // Should wait
     });

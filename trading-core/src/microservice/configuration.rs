@@ -44,9 +44,11 @@ impl<State> Configuration<State> {
     /// # Returns
     ///
     /// A `Configuration::Multiplexer` variant.
-    pub fn new_multiplexer() -> Self {
+    pub fn new_multiplexer(
+        on_allocation_callback: Box<dyn FnMut(&mut State, Allocation) -> Allocation + Send>,
+    ) -> Self {
         Self {
-            config: ConfigurationBuilder::new_multiplexer(),
+            config: ConfigurationBuilder::new_multiplexer(on_allocation_callback),
         }
     }
 
@@ -87,7 +89,7 @@ impl<State> Configuration<State> {
 
 enum ConfigurationBuilder<State> {
     Strategy(Strategy<State>),
-    Multiplexer(Multiplexer),
+    Multiplexer(Multiplexer<State>),
     ExecutionEngine(ExecutionEngine),
 }
 
@@ -115,8 +117,11 @@ impl<State> ConfigurationBuilder<State> {
     /// # Returns
     ///
     /// A `Configuration::Multiplexer` variant.
-    fn new_multiplexer() -> Self {
+    fn new_multiplexer(
+        on_allocation_callback: Box<dyn FnMut(&mut State, Allocation) -> Allocation + Send>,
+    ) -> Self {
         Self::Multiplexer(Multiplexer {
+            on_allocation_callback,
             runners: RunnerManager::new(),
         })
     }
@@ -218,12 +223,16 @@ impl<State> Strategy<State> {
     }
 }
 
-struct Multiplexer {
+struct Multiplexer<State> {
+    /// Callback
+    on_allocation_callback: Box<dyn FnMut(&mut State, Allocation) -> Allocation + Send>,
+
+    /// Runners
     runners: RunnerManager,
 }
 
-impl Multiplexer {
-    pub fn run<State>(
+impl<State> Multiplexer<State> {
+    pub fn run(
         &mut self,
         state: Arc<Mutex<State>>,
         address_book: HashMap<String, Address>,
@@ -245,14 +254,16 @@ impl Multiplexer {
         // 3. Define the Callback
         // The Multiplexer simply forwards received Allocations to the Execution Engine.
         // It might also log or aggregate in the future.
-        let callback = Box::new(move |_state: &mut State, allocation: Allocation| {
-            // Forwarding logic
-            // We use block_in_place to bridge async send with the sync callback
+        let mut cb = std::mem::replace(
+            &mut self.on_allocation_callback,
+            Box::new(|_, _| Allocation::default()),
+        );
+
+        let callback = Box::new(move |state: &mut State, allocation: Allocation| {
+            let allocation = cb(state, allocation);
             tokio::task::block_in_place(|| {
                 tokio::runtime::Handle::current().block_on(async {
-                    if let Err(e) = publisher.send(&allocation).await {
-                        eprintln!("Multiplexer failed to forward allocation: {}", e);
-                    }
+                    let _ = publisher.send(&allocation).await;
                 });
             });
         });
