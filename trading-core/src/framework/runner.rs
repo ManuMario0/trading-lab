@@ -20,6 +20,8 @@ pub enum RunnerCommand {
     Stop,
     /// Update the listening address at runtime.
     UpdateAddress(Address),
+    /// Add a new input source dynamically (Multiplexing).
+    AddInput(Address),
 }
 
 /// The structure used for a runner.
@@ -57,7 +59,7 @@ impl<State, Input> Runner<State, Input> {
         let (control_tx, control_rx) = mpsc::channel();
         let handle = thread::spawn(move || {
             // Create a runtime for the async runner loop
-            let rt = tokio::runtime::Builder::new_current_thread()
+            let rt = tokio::runtime::Builder::new_multi_thread()
                 .enable_all()
                 .build()
                 .unwrap();
@@ -91,6 +93,17 @@ impl<State, Input> Runner<State, Input> {
             .send(RunnerCommand::UpdateAddress(address))
             .unwrap();
     }
+
+    /// Adds a new input source to the runner.
+    ///
+    /// # Arguments
+    ///
+    /// * `address` - The address to connect to.
+    pub fn add_input(&mut self, address: Address) {
+        self.control_tx
+            .send(RunnerCommand::AddInput(address))
+            .unwrap();
+    }
 }
 
 /// A trait for type-erased runners, allowing them to be stored in a homogeneous collection.
@@ -99,6 +112,8 @@ pub(crate) trait ManagedRunner: Send {
     fn stop(self: Box<Self>);
     /// Updates the runner's address.
     fn update_address(&mut self, address: Address);
+    /// Adds a connection source.
+    fn add_input(&mut self, address: Address);
 }
 
 impl<State, Input> ManagedRunner for Runner<State, Input>
@@ -112,6 +127,10 @@ where
 
     fn update_address(&mut self, address: Address) {
         self.update_address(address)
+    }
+
+    fn add_input(&mut self, address: Address) {
+        self.add_input(address)
     }
 }
 
@@ -144,7 +163,14 @@ async fn runner_loop<State, Input>(
         match control_rx.try_recv() {
             Ok(RunnerCommand::Stop) => break,
             Ok(RunnerCommand::UpdateAddress(addr)) => {
+                // For replacing the listener, we rebuild it
                 listener = build_subscriber(&addr).unwrap();
+                received_work = true;
+            }
+            Ok(RunnerCommand::AddInput(addr)) => {
+                // For adding inputs, we use connect on the existing listener
+                // We unwrap here as this is a critical configuration error if it fails
+                listener.connect(&addr).await.unwrap();
                 received_work = true;
             }
             Err(_) => (),

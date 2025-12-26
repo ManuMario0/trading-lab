@@ -1,5 +1,7 @@
 use serde::{Deserialize, Serialize};
 
+use crate::comms::Address;
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type", content = "payload")]
 pub enum AdminPayload {
@@ -55,6 +57,9 @@ pub enum AdminCommand {
 
     /// Request for registry
     Registry,
+
+    /// Adds a new strategy connection dynamically (Multiplexer only).
+    AddStrategy { address: Address },
 
     /// Catch-all for forward compatibility (optional).
     /// If an unknown command is received, it falls here (if using serde_json).

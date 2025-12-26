@@ -17,9 +17,9 @@ pub enum Address {
     /// Internal Memory Channel (Intra-Process)
     /// Format: "channel_name"
     Memory(String),
-    // Future expansion:
-    // Tcp(String),
-    // Udp(String),
+
+    /// No connection (used for dynamic Multiplexers starting empty)
+    Empty,
 }
 
 impl Address {
@@ -56,6 +56,7 @@ impl fmt::Display for Address {
         match self {
             Address::Zmq(addr) => write!(f, "zmq:{}", addr),
             Address::Memory(name) => write!(f, "mem:{}", name),
+            Address::Empty => write!(f, "empty"),
         }
     }
 }

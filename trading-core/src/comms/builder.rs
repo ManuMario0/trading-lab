@@ -31,6 +31,9 @@ where
         Address::Memory(_) => {
             bail!("Memory channels not yet implemented for Publisher");
         }
+        Address::Empty => {
+            bail!("Cannot build a publisher with an empty address");
+        }
     };
     Ok(SenderSocket::new(transport))
 }
@@ -57,6 +60,21 @@ where
         Address::Memory(_) => {
             bail!("Memory channels not yet implemented for Subscriber");
         }
+        Address::Empty => return build_empty_subscriber(),
     };
+    Ok(ReceiverSocket::new(transport))
+}
+
+/// Factory to create an empty Subscriber endpoint (no initial connection).
+///
+/// # Returns
+///
+/// * `Ok(ReceiverSocket)` if successful.
+pub fn build_empty_subscriber<T>() -> Result<ReceiverSocket<T>>
+where
+    T: DeserializeOwned + Send + Sync + 'static,
+{
+    // Zmq implementation
+    let transport: Box<dyn TransportInput> = Box::new(ZmqSubscriber::new_empty()?);
     Ok(ReceiverSocket::new(transport))
 }

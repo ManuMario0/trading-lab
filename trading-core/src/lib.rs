@@ -13,7 +13,7 @@
 pub mod admin;
 pub mod args;
 pub mod comms;
-pub mod ffi;
+
 pub mod framework;
 pub mod fs;
 

@@ -38,6 +38,10 @@ impl TransportInput for MemoryTransportInput {
             _ => anyhow::anyhow!("Memory channel closed"),
         })
     }
+
+    async fn connect(&mut self, _address: &crate::comms::address::Address) -> Result<()> {
+        anyhow::bail!("MemoryTransportInput does not support dynamic connection yet")
+    }
 }
 
 /// Internal memory transport for testing/threading (Output).

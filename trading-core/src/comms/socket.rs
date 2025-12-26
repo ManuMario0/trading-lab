@@ -54,6 +54,15 @@ where
         let data = bincode::deserialize(&bytes)?;
         Ok(data)
     }
+
+    /// Connects to a new publisher/source dynamically.
+    ///
+    /// # Arguments
+    ///
+    /// * `address` - The address to connect to.
+    pub async fn connect(&mut self, address: &crate::comms::address::Address) -> Result<()> {
+        self.transport.connect(address).await
+    }
 }
 
 /// A strongly-typed output socket.

@@ -63,4 +63,11 @@ impl RunnerManager {
             runner.update_address(address);
         }
     }
+
+    /// Adds a new input source to a specific runner.
+    pub fn add_runner_input(&mut self, name: &str, address: Address) {
+        if let Some(runner) = self.runners.get_mut(name) {
+            runner.add_input(address);
+        }
+    }
 }

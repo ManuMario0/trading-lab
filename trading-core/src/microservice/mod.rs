@@ -2,12 +2,14 @@ pub mod configuration;
 pub mod registry;
 
 use crate::{
+    admin::command::AdminPayload,
     args::CommonArgs,
     comms::Address,
     fs::PathManager,
     microservice::{configuration::Configuration, registry::Registry},
 };
-use std::sync::{Arc, Mutex};
+use std::sync::{mpsc, Arc, Mutex};
+use std::thread;
 
 pub struct Microservice<State> {
     admin_address: Address,
@@ -16,6 +18,7 @@ pub struct Microservice<State> {
     on_registry_update: Option<Box<dyn FnOnce(&mut State, &Registry) -> () + 'static>>,
     path_manager: PathManager,
     configuration: Configuration<State>,
+    args: CommonArgs,
 }
 
 impl<State> Microservice<State> {
@@ -44,6 +47,7 @@ impl<State> Microservice<State> {
             on_registry_update: None,
             path_manager: PathManager::from_args(&args),
             configuration,
+            args,
         }
     }
 
@@ -94,18 +98,83 @@ impl<State> Microservice<State> {
             callback(&mut state, &self.registry);
         }
 
-        // 3. Start Admin Interface (Stub)
-        // In a real implementation, this would spawn a thread listening on self.admin_address
-        // and exposing self.registry.
-        println!("Microservice starting...");
-        println!("Admin interface on: {}", self.admin_address);
+        // 3. Start Admin Interface
+        let admin_addr = self.admin_address.clone();
+        let (admin_tx, admin_rx) = mpsc::channel();
+
+        thread::spawn(move || {
+            let context = zmq::Context::new();
+            let socket = context
+                .socket(zmq::REP)
+                .expect("Failed to create Admin REP socket");
+
+            let addr_str = match admin_addr {
+                Address::Zmq(s) => s,
+                Address::Memory(s) => format!("inproc://{}", s),
+                Address::Empty => return, // No admin
+            };
+
+            socket.bind(&addr_str).expect("Failed to bind Admin socket");
+            println!("Admin interface listening on: {}", addr_str);
+
+            loop {
+                // 1. Receive Request
+                let msg = match socket.recv_bytes(0) {
+                    Ok(m) => m,
+                    Err(_) => break, // Context terminated
+                };
+
+                // 2. Parse (JSON)
+                let payload: AdminPayload = match serde_json::from_slice(&msg) {
+                    Ok(p) => p,
+                    Err(e) => {
+                        let _ = socket.send(&format!("{{\"error\": \"{}\"}}", e), 0);
+                        continue;
+                    }
+                };
+
+                // 3. Process
+                match payload {
+                    AdminPayload::Command(cmd) => {
+                        // Forward to Service
+                        // We check for Shutdown here to maybe break the listener loop?
+                        let is_shutdown = cmd.is_shutdown();
+                        if let Err(e) = admin_tx.send(cmd) {
+                            eprintln!("Failed to forward admin command: {}", e);
+                            break;
+                        }
+
+                        // Send Response
+                        // For now we just ack
+                        let _ = socket.send(r#"{"status": "Ok", "payload": null}"#, 0);
+
+                        if is_shutdown {
+                            break;
+                        }
+                    }
+                    _ => {
+                        let _ = socket.send(
+                            r#"{"status": "Error", "payload": "Only commands supported"}"#,
+                            0,
+                        );
+                    }
+                }
+            }
+        });
 
         // 4. Launch the Configuration
-        // TODO: The address book should be loaded from a config file or discovery service.
-        // For now, we use an empty map, potentially preventing correct connection in this stub.
-        let address_book = std::collections::HashMap::new();
+        // Default Address Book from Args
+        let mut address_book = std::collections::HashMap::new();
+        // For Multiplexer: output is execution engine
+        address_book.insert("execution_engine".to_string(), self.args.get_output_port());
+        // For Strategy: output is allocation, input is market_data
+        address_book.insert("allocation".to_string(), self.args.get_output_port());
+        address_book.insert("market_data".to_string(), self.args.get_input_port());
 
-        match self.configuration.launch(self.state, address_book) {
+        match self
+            .configuration
+            .launch(self.state, address_book, admin_rx)
+        {
             Ok(_) => {
                 // Should not happen if launch loops
                 println!("Service exited gracefully.");

@@ -1,3 +1,4 @@
+use crate::comms::address::Address;
 use crate::comms::transport::{TransportInput, TransportOutput};
 use anyhow::{Context, Result};
 use async_trait::async_trait;
@@ -49,6 +50,16 @@ impl ZmqSubscriber {
             socket: Mutex::new(socket),
         })
     }
+
+    pub fn new_empty() -> Result<Self> {
+        let context = ZmqContext::new();
+        let socket = context.socket(SocketType::SUB)?;
+        // Subscribe to everything
+        socket.set_subscribe(b"")?;
+        Ok(Self {
+            socket: Mutex::new(socket),
+        })
+    }
 }
 
 #[async_trait]
@@ -69,5 +80,16 @@ impl TransportInput for ZmqSubscriber {
             .recv_bytes(zmq::DONTWAIT)
             .context("Failed to receive data payload")?;
         Ok(data)
+    }
+
+    async fn connect(&mut self, address: &Address) -> Result<()> {
+        let socket = self.socket.lock().unwrap();
+        match address {
+            Address::Zmq(endpoint) => {
+                socket.connect(endpoint)?;
+                Ok(())
+            }
+            _ => anyhow::bail!("ZmqSubscriber only supports Zmq addresses"),
+        }
     }
 }

@@ -126,6 +126,14 @@ impl Allocation {
     }
 }
 
+/// Represents a simplified portfolio target for multiplexing.
+/// It contains a list of instrument IDs and their desired weights (0.0 to 1.0, or -1.0 to 1.0).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TargetPortfolio {
+    pub multiplexer_id: String,
+    pub target_weights: HashMap<InstrumentId, f64>,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

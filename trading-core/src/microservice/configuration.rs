@@ -10,10 +10,12 @@ use std::sync::{Arc, Mutex};
 
 use crate::comms;
 use crate::{
+    admin::command::AdminCommand,
     comms::Address,
     framework::runner_manager::RunnerManager,
     model::{allocation::Allocation, market_data::MarketDataBatch},
 };
+use std::sync::mpsc::Receiver;
 
 pub struct Configuration<State> {
     config: ConfigurationBuilder<State>,
@@ -74,11 +76,12 @@ impl<State> Configuration<State> {
         &mut self,
         state: Arc<Mutex<State>>,
         address_book: HashMap<String, Address>,
+        admin_rx: Receiver<AdminCommand>,
     ) -> Result<(), String>
     where
         State: Send + 'static,
     {
-        self.config.launch(state, address_book)
+        self.config.launch(state, address_book, admin_rx)
     }
 }
 
@@ -113,7 +116,9 @@ impl<State> ConfigurationBuilder<State> {
     ///
     /// A `Configuration::Multiplexer` variant.
     fn new_multiplexer() -> Self {
-        Self::Multiplexer(Multiplexer {})
+        Self::Multiplexer(Multiplexer {
+            runners: RunnerManager::new(),
+        })
     }
 
     /// Creates a new Execution Engine configuration.
@@ -140,14 +145,15 @@ impl<State> ConfigurationBuilder<State> {
         &mut self,
         state: Arc<Mutex<State>>,
         address_book: HashMap<String, Address>,
+        admin_rx: Receiver<AdminCommand>,
     ) -> Result<(), String>
     where
         State: Send + 'static,
     {
         match self {
-            Self::Strategy(strategy) => strategy.run(state, address_book),
-            Self::Multiplexer(multiplexer) => multiplexer.run(),
-            Self::ExecutionEngine(execution_engine) => execution_engine.run(),
+            Self::Strategy(strategy) => strategy.run(state, address_book, admin_rx),
+            Self::Multiplexer(multiplexer) => multiplexer.run(state, address_book, admin_rx),
+            Self::ExecutionEngine(execution_engine) => execution_engine.run(admin_rx),
         }
     }
 }
@@ -167,6 +173,7 @@ impl<State> Strategy<State> {
         &mut self,
         state: Arc<Mutex<State>>,
         address_book: HashMap<String, Address>,
+        _admin_rx: Receiver<AdminCommand>,
     ) -> Result<(), String>
     where
         State: Send + 'static,
@@ -211,10 +218,70 @@ impl<State> Strategy<State> {
     }
 }
 
-struct Multiplexer {}
+struct Multiplexer {
+    runners: RunnerManager,
+}
 
 impl Multiplexer {
-    pub fn run(&self) -> Result<(), String> {
+    pub fn run<State>(
+        &mut self,
+        state: Arc<Mutex<State>>,
+        address_book: HashMap<String, Address>,
+        admin_rx: Receiver<AdminCommand>,
+    ) -> Result<(), String>
+    where
+        State: Send + 'static,
+    {
+        // 1. Get Output Address (Allocation)
+        let output_addr = address_book
+            .get("allocation")
+            .ok_or("Missing 'allocation' address for Multiplexer output")?
+            .clone();
+
+        // 2. Create Publisher to Allocation
+        let publisher = comms::build_publisher::<Allocation>(&output_addr)
+            .map_err(|e| format!("Failed to create publisher: {}", e))?;
+
+        // 3. Define the Callback
+        // The Multiplexer simply forwards received Allocations to the Execution Engine.
+        // It might also log or aggregate in the future.
+        let callback = Box::new(move |_state: &mut State, allocation: Allocation| {
+            // Forwarding logic
+            // We use block_in_place to bridge async send with the sync callback
+            tokio::task::block_in_place(|| {
+                tokio::runtime::Handle::current().block_on(async {
+                    if let Err(e) = publisher.send(&allocation).await {
+                        eprintln!("Multiplexer failed to forward allocation: {}", e);
+                    }
+                });
+            });
+        });
+
+        // 4. Start the Runner on an Empty Input
+        // The Runner will start disconnected. Admin commands will add inputs later.
+        // Note: "strategies" is the ID of this runner.
+        self.runners
+            .add_runner("strategies", state, callback, Address::Empty);
+
+        // 5. Admin Loop (Blocking)
+        // We listen for Admin commands dynamically
+        println!("Multiplexer running. Waiting for Admin commands...");
+        for cmd in admin_rx {
+            match cmd {
+                AdminCommand::AddStrategy { address } => {
+                    println!("Multiplexer adding strategy input: {}", address);
+                    self.runners.add_runner_input("strategies", address);
+                }
+                AdminCommand::Shutdown => {
+                    println!("Multiplexer shutting down...");
+                    break;
+                }
+                _ => {
+                    // Ignore other commands or implement registry updates here
+                }
+            }
+        }
+
         Ok(())
     }
 }
@@ -222,7 +289,7 @@ impl Multiplexer {
 struct ExecutionEngine {}
 
 impl ExecutionEngine {
-    pub fn run(&self) -> Result<(), String> {
+    pub fn run(&self, _admin_rx: Receiver<AdminCommand>) -> Result<(), String> {
         Ok(())
     }
 }

@@ -29,6 +29,10 @@ pub struct CommonArgs {
     #[arg(long, default_value = "tcp://127.0.0.1:5556")]
     output_port: String,
 
+    /// Port for incoming market data (SUB)
+    #[arg(long, default_value = "tcp://127.0.0.1:5557")]
+    input_port: String,
+
     /// Path to the configuration directory
     #[arg(long, default_value = "./config")]
     config_dir: PathBuf,
@@ -55,6 +59,11 @@ impl CommonArgs {
     /// Returns the output port (PUB).
     pub fn get_output_port(&self) -> Address {
         Address::Zmq(self.output_port.clone())
+    }
+
+    /// Returns the input port (SUB).
+    pub fn get_input_port(&self) -> Address {
+        Address::Zmq(self.input_port.clone())
     }
 
     /// Returns the path to the configuration directory.
