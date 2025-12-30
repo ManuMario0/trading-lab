@@ -33,11 +33,7 @@ where
         }
     }
 
-    pub(crate) fn launch(
-        &mut self,
-        state: Arc<Mutex<Config::State>>,
-        initial_bindings: ServiceBindings,
-    ) {
+    pub fn launch(&mut self, state: Arc<Mutex<Config::State>>, initial_bindings: ServiceBindings) {
         self.runners = Some(
             self.config
                 .create_runners(initial_bindings, state)
@@ -45,7 +41,7 @@ where
         );
     }
 
-    pub(crate) fn update_from_service_config(&mut self, config: ServiceBindings) {
+    pub fn update_from_service_config(&mut self, config: ServiceBindings) {
         for (name, binding) in config.inputs {
             self.runners
                 .as_mut()
@@ -53,7 +49,7 @@ where
         }
     }
 
-    pub(crate) fn shutdown(&mut self) {
+    pub fn shutdown(&mut self) {
         if let Some(runners) = self.runners.take() {
             runners.shutdown();
         }

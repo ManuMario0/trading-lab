@@ -61,3 +61,12 @@ impl FromStr for Binding {
         serde_json::from_str(s)
     }
 }
+
+impl ServiceBindings {
+    pub fn new() -> Self {
+        Self {
+            inputs: std::collections::HashMap::new(),
+            outputs: std::collections::HashMap::new(),
+        }
+    }
+}
