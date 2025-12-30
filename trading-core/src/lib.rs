@@ -18,5 +18,8 @@ pub mod fs;
 pub mod manifest;
 pub mod microservice;
 // pub mod model; // Moved to trading crate
-pub use framework::boot;
+pub use framework::{
+    boot, boot_broker_gateway, boot_execution_engine, boot_multiplexer, boot_portfolio_manager,
+    boot_strategy,
+};
 pub use trading::model;

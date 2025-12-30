@@ -13,3 +13,9 @@ pub trait Multiplexist: Send {
     /// * `AllocationBatch` - The aggregated allocation batch.
     fn on_allocation_batch(&mut self, source_id: Id, batch: AllocationBatch) -> AllocationBatch;
 }
+
+impl Multiplexist for Box<dyn Multiplexist> {
+    fn on_allocation_batch(&mut self, source_id: Id, batch: AllocationBatch) -> AllocationBatch {
+        (**self).on_allocation_batch(source_id, batch)
+    }
+}

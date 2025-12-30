@@ -38,3 +38,17 @@ pub trait Manager: Send {
     /// * `Option<Target>` - An optional target portfolio to publish.
     fn on_market_data(&mut self, market_data: PriceUpdate) -> Option<Target>;
 }
+
+impl Manager for Box<dyn Manager> {
+    fn on_allocation(&mut self, batch: AllocationBatch) -> Option<Target> {
+        (**self).on_allocation(batch)
+    }
+
+    fn on_portfolio(&mut self, portfolio: Actual) -> Option<Target> {
+        (**self).on_portfolio(portfolio)
+    }
+
+    fn on_market_data(&mut self, market_data: PriceUpdate) -> Option<Target> {
+        (**self).on_market_data(market_data)
+    }
+}

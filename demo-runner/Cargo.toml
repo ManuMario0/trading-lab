@@ -6,4 +6,5 @@ edition = "2021"
 [dependencies]
 trading-core = { path = "../trading-core" }
 my_strategy = { path = "../templates/strategy-standard" }
+my_multiplexer = { path = "../templates/multiplexer-static" }
 trading = { path = "../trading-api" }

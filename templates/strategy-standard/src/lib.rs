@@ -10,4 +10,10 @@ impl Strategist for MyStrategy {
     }
 }
 
+impl Initiable for MyStrategy {
+    fn init() -> Self {
+        Self::default()
+    }
+}
+
 trading::export_strategy!(MyStrategy);

@@ -27,3 +27,13 @@ pub trait Executor: Send {
     /// * `(Vec<Order>, Option<Actual>)` - A list of orders to execute and an optional portfolio update to publish.
     fn on_execution(&mut self, execution: ExecutionResult) -> (Vec<Order>, Option<Actual>);
 }
+
+impl Executor for Box<dyn Executor> {
+    fn on_target(&mut self, target: Target) -> (Vec<Order>, Option<Actual>) {
+        (**self).on_target(target)
+    }
+
+    fn on_execution(&mut self, execution: ExecutionResult) -> (Vec<Order>, Option<Actual>) {
+        (**self).on_execution(execution)
+    }
+}

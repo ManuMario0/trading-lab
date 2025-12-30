@@ -1,4 +1,7 @@
 fn main() {
-    let strategy = my_strategy::entry_point();
-    trading_core::boot(strategy);
+    let _strategy = my_strategy::entry_point();
+    let multiplexer = my_multiplexer::entry_point();
+
+    // We can choose which one to boot
+    trading_core::boot_multiplexer(multiplexer);
 }
