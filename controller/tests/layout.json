@@ -1,0 +1,47 @@
+{
+    "id": "demo-layout",
+    "nodes": [
+        {
+            "id": "strat-1",
+            "name": "TrendFollow",
+            "category": "Strategy",
+            "position": [
+                100.0,
+                100.0
+            ],
+            "status": "Stopped"
+        },
+        {
+            "id": "mux-1",
+            "name": "MainMux",
+            "category": "Multiplexer",
+            "position": [
+                300.0,
+                100.0
+            ],
+            "status": "Stopped"
+        },
+        {
+            "id": "exec-1",
+            "name": "Execution",
+            "category": "ExecutionEngine",
+            "position": [
+                500.0,
+                100.0
+            ],
+            "status": "Stopped"
+        }
+    ],
+    "edges": [
+        {
+            "id": "edge-1",
+            "source": "strat-1",
+            "target": "mux-1"
+        },
+        {
+            "id": "edge-2",
+            "source": "mux-1",
+            "target": "exec-1"
+        }
+    ]
+}

@@ -50,8 +50,4 @@ impl RunningProcess {
 }
 
 // Public Info struct for API responses (Detached from Child)
-#[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct ProcessInfo {
-    pub id: String,
-    pub status: String,
-}
+pub use orchestrator_protocol::ProcessInfo;

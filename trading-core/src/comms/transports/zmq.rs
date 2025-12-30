@@ -139,3 +139,37 @@ impl TransportDuplex for ZmqDuplex {
         Ok(data)
     }
 }
+
+/// A thread-safe ZMQ Request wrapper (Client).
+pub struct ZmqClientDuplex {
+    socket: Mutex<Socket>,
+}
+
+impl ZmqClientDuplex {
+    pub fn new(address: &str) -> Result<Self> {
+        let context = ZmqContext::new();
+        let socket = context.socket(SocketType::REQ)?;
+        socket.connect(address)?;
+        Ok(Self {
+            socket: Mutex::new(socket),
+        })
+    }
+}
+
+#[async_trait]
+impl TransportDuplex for ZmqClientDuplex {
+    async fn send_bytes(&self, data: &[u8]) -> Result<()> {
+        let socket = self.socket.lock().unwrap();
+        socket
+            .send(data, 0)
+            .context("Failed to send ZMQ message (Transport)")
+    }
+
+    async fn recv_bytes(&mut self) -> Result<Vec<u8>> {
+        let socket = self.socket.lock().unwrap();
+        let data = socket
+            .recv_bytes(0)
+            .context("Failed to receive data payload")?;
+        Ok(data)
+    }
+}

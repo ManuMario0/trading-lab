@@ -132,7 +132,10 @@ impl ProcessManager {
             for (id, proc) in &group.processes {
                 list.push(ProcessInfo {
                     id: id.clone(),
+                    name: proc.category.clone(), // Using category as name for now
                     status: "Running".to_string(),
+                    cpu_usage: 0.0,
+                    memory_usage: 0,
                 });
             }
         }

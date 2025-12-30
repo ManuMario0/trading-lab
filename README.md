@@ -68,10 +68,34 @@ graph TD
 
 ## 🌟 Key Components
 
-### 1. System Orchestrator (`system-orchestrator`) 🧠
-The administrative core (Rust).
-- **Role**: Manages the lifecycle of the entire trading graph.
-- **Capabilities**: Spawns/kills processes, handles dynamic topology changes, and provides the REST API for the frontend.
+### 1. System Orchestrator Ecosystem 🧠
+The administrative core is now modularized into three components for better scalability and developer experience:
+
+```mermaid
+graph TD
+    subgraph "Frontend"
+        UI[Supervisor Frontend]
+    end
+
+    subgraph "Backend"
+        API[Supervisor Backend]
+        CLI[Controller CLI]
+    end
+
+    subgraph "Core"
+        Daemon[System Orchestrator]
+    end
+
+    UI -- HTTP/WS --> API
+    API -- ZMQ (REQ) --> Daemon
+    CLI -- ZMQ (REQ) --> Daemon
+    Daemon -- Spawns --> P1[Process 1]
+    Daemon -- Spawns --> P2[Process 2]
+```
+
+- **System Orchestrator (Daemon)**: The core service (`system-orchestrator`) that manages process lifecycles and listens for ZMQ commands.
+- **Controller (CLI)**: A developer tool (`controller`) for fast iteration, deploying layouts, and debugging the daemon.
+- **Supervisor Backend**: An API Gateway (`supervisor-backend`) that connects the React Frontend to the Daemon, handling layout persistence and command forwarding.
 
 ### 2. Trading Core (`trading-core`) 🧱
 The shared **Rust** foundation used by all backend services.
