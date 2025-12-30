@@ -15,7 +15,7 @@ use crate::{
 use trading::Manager;
 
 lazy_static! {
-    pub(crate) static ref PORTFOLIO_MANAGER_MANIFEST: ServiceBlueprint = ServiceBlueprint {
+    pub static ref PORTFOLIO_MANAGER_MANIFEST: ServiceBlueprint = ServiceBlueprint {
         service_type: "PortfolioManager".to_string(),
         inputs: vec![
             PortDefinition {

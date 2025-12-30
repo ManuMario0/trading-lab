@@ -12,7 +12,7 @@ use crate::{
 use trading::Multiplexist;
 
 lazy_static! {
-    pub(crate) static ref MULTIPLEXER_MANIFEST: ServiceBlueprint = ServiceBlueprint {
+    pub static ref MULTIPLEXER_MANIFEST: ServiceBlueprint = ServiceBlueprint {
         service_type: "Strategy".to_string(),
         inputs: vec![PortDefinition {
             name: "strategies".to_string(),

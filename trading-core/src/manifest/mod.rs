@@ -70,3 +70,63 @@ impl ServiceBindings {
         }
     }
 }
+
+impl ServiceBlueprint {
+    pub fn generate_args(
+        &self,
+        service_id: &str,
+        _admin_port: u16,
+        bindings: ServiceBindings,
+    ) -> Vec<String> {
+        let mut args = Vec::new();
+
+        // Standard Args
+        args.push("--service-name".to_string());
+        args.push(self.service_type.clone());
+
+        // We use hash or 0 for ID if parsing fails, but interface passes string node.id
+        // CommonArgs expects integer id?
+        // Let's hash string to usize or parse
+        // If service_id is "pm_1", we strip prefix or hash.
+        // Simple hash:
+        let mut hasher = std::collections::hash_map::DefaultHasher::new();
+        use std::hash::Hash;
+        use std::hash::Hasher;
+        service_id.hash(&mut hasher);
+        let numeric_id = hasher.finish() as usize; // Cast u64 to usize
+
+        args.push("--service-id".to_string());
+        args.push(numeric_id.to_string());
+
+        // Bindings (JSON)
+        let bindings_json = serde_json::to_string(&bindings).unwrap_or("{}".to_string());
+        args.push("--bindings".to_string());
+        args.push(bindings_json);
+
+        // Admin Port ? CommonArgs doesn't have admin_port explicitly?
+        // Step 387: CommonArgs fields: service_name, service_id, bindings, config_dir, data_dir.
+        // It does NOT have admin_port.
+        // But `config_resolver` allocates it.
+        // Where is admin port used?
+        // Maybe in bindings?
+        // Or passed as extra arg?
+        // Legacy args had --admin-port.
+        // New CommonArgs relies on bindings to setup inputs/outputs.
+        // BUT admin is distinct.
+        // Check `trading-core/src/microservice/mod.rs` or `launcher`.
+        // If CommonArgs doesn't take admin port, how does service know where to bind admin?
+        // Maybe strict Blueprint doesn't enforce admin port yet?
+        // Or it's part of bindings? e.g. "admin" port.
+
+        // For MVP, if CommonArgs doesn't have it, we might skip it or add it.
+        // Let's assume we skip precise admin port config for now OR add it to bindings?
+
+        // Return args
+        args.push("--config-dir".to_string());
+        args.push(".".to_string());
+        args.push("--data-dir".to_string());
+        args.push(".".to_string());
+
+        args
+    }
+}

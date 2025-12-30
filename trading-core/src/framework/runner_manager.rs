@@ -106,7 +106,7 @@ impl RunnerManager {
     }
 
     /// Shuts down all runners managed by this manager.
-    pub(crate) fn shutdown(self) {
+    pub fn shutdown(self) {
         for mut runner in self.runners.into_values() {
             runner.shutdown();
         }

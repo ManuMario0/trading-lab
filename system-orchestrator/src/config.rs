@@ -21,6 +21,8 @@ pub struct SystemConfig {
     pub multiplexer_path: String,
     pub execution_engine_path: String,
     pub gateway_paper_path: String,
+    pub portfolio_manager_path: String,
+    pub broker_gateway_path: String,
 }
 
 impl Default for SystemConfig {
@@ -45,6 +47,9 @@ impl Default for SystemConfig {
             multiplexer_path: "../multiplexer/build/multiplexer".to_string(),
             execution_engine_path: "../execution-engine/target/debug/execution-engine".to_string(),
             gateway_paper_path: "../gateways/gateway-paper/target/debug/gateway-paper".to_string(),
+            portfolio_manager_path: "../portfolio-manager/target/debug/portfolio-manager"
+                .to_string(),
+            broker_gateway_path: "../broker-gateway/target/debug/broker-gateway".to_string(),
         }
     }
 }

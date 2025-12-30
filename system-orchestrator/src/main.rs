@@ -43,7 +43,7 @@ async fn main() -> anyhow::Result<()> {
     loop {
         {
             let mut pm = process_manager.lock().unwrap();
-            pm.check_status().await;
+            pm.check_status();
         }
 
         sleep(Duration::from_secs(5)).await;

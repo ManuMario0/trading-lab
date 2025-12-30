@@ -1,0 +1,14 @@
+[workspace]
+resolver = "2"
+members = [
+    "trading-api",
+    "trading-core",
+    "execution-engine",
+    "multiplexer",
+    "strategy-lab",
+    "system-orchestrator",
+    "portfolio-manager",
+    "broker-gateway",
+    "demo-runner",
+    "gateways/gateway-paper",
+]

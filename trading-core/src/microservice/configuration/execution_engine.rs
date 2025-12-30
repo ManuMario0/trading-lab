@@ -15,7 +15,7 @@ use crate::{
 use trading::Executor;
 
 lazy_static! {
-    pub(crate) static ref EXECUTION_ENGINE_MANIFEST: ServiceBlueprint = ServiceBlueprint {
+    pub static ref EXECUTION_ENGINE_MANIFEST: ServiceBlueprint = ServiceBlueprint {
         service_type: "ExecutionEngine".to_string(),
         inputs: vec![
             PortDefinition {

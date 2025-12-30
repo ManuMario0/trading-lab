@@ -1,13 +1,26 @@
-use log::info;
+use anyhow::Result;
+use broker_gateway::paper::PaperBroker;
+use trading_core::microservice::{
+    configuration::{broker_gateway::BrokerGateway as ServiceWrapper, Configuration},
+    Microservice,
+};
 
 #[tokio::main]
-async fn main() -> anyhow::Result<()> {
+async fn main() -> Result<()> {
     env_logger::init();
-    info!("Starting Broker Gateway...");
 
-    // TODO: Parse command line args for --mode=paper or --mode=live
-    // TODO: Connect to Broker API
-    // TODO: Listen on ZMQ
+    // 1. Initial State Factory
+    let initial_state = || {
+        // Initialize Paper Broker with $1M USD
+        PaperBroker::new(1_000_000.0)
+    };
+
+    // 2. Configuration Wrapper
+    let config = Configuration::new(ServiceWrapper::new());
+
+    // 3. Run Microservice
+    let service = Microservice::new(initial_state, config);
+    service.run().await;
 
     Ok(())
 }
