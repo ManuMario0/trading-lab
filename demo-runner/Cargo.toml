@@ -1,0 +1,9 @@
+[package]
+name = "demo-runner"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+trading-core = { path = "../trading-core" }
+my_strategy = { path = "../templates/strategy-standard" }
+trading = { path = "../trading-api" }

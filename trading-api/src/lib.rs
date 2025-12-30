@@ -1,3 +1,4 @@
+pub mod macros;
 pub mod model;
 
 pub use model::allocation::Allocation;
@@ -16,3 +17,11 @@ pub use traits::executor::Executor;
 pub use traits::manager::Manager;
 pub use traits::multiplexist::Multiplexist;
 pub use traits::strategist::Strategist;
+
+pub mod prelude {
+    pub use crate::export_strategy;
+    pub use crate::model::allocation::Allocation;
+    pub use crate::model::allocation_batch::AllocationBatch;
+    pub use crate::model::market_data::MarketDataBatch;
+    pub use crate::traits::strategist::Strategist;
+}

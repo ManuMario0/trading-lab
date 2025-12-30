@@ -2,8 +2,8 @@ use anyhow::Result;
 use clap::Parser;
 use log::info;
 use trading::{
-    model::allocation::Allocation, model::allocation_batch::AllocationBatch,
-    model::market_data::MarketDataBatch, Strategist,
+    model::{allocation_batch::AllocationBatch, market_data::MarketDataBatch},
+    Allocation, Strategist,
 };
 use trading_core::{
     args::CommonArgs,
@@ -19,7 +19,7 @@ struct DummyStrategy {
 }
 
 impl Strategist for DummyStrategy {
-    fn on_market_data(&mut self, batch: MarketDataBatch) -> Option<Allocation> {
+    fn on_market_data(&mut self, batch: MarketDataBatch) -> AllocationBatch {
         // info!("Received batch with {} updates", batch.get_count());
 
         // Simple dummy logic: always allocate fixed amount to instrument 1 if present
@@ -37,9 +37,9 @@ impl Strategist for DummyStrategy {
         if count > 0 {
             let mut allocation = self.allocation.clone();
             allocation.update_position(1, self.allocation_amount);
-            Some(allocation)
+            AllocationBatch::new(vec![allocation])
         } else {
-            None
+            AllocationBatch::new(vec![])
         }
     }
 }

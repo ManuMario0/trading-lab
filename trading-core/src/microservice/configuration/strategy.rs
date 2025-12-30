@@ -86,14 +86,12 @@ where
             state,
             Box::new(
                 move |state: &mut State, _config_id: Id, data: MarketDataBatch| {
-                    if let Some(allocation) = state.on_market_data(data) {
-                        let allocation_batch = AllocationBatch::new(vec![allocation]);
-                        tokio::task::block_in_place(|| {
-                            tokio::runtime::Handle::current().block_on(async {
-                                let _ = publisher.send(allocation_batch).await;
-                            });
+                    let allocation_batch = state.on_market_data(data);
+                    tokio::task::block_in_place(|| {
+                        tokio::runtime::Handle::current().block_on(async {
+                            let _ = publisher.send(allocation_batch).await;
                         });
-                    }
+                    });
                 },
             ),
             Some(source.address.clone()),

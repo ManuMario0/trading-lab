@@ -1,4 +1,4 @@
-use crate::model::{allocation::Allocation, identity::Id, market_data::MarketDataBatch};
+use crate::model::{allocation_batch::AllocationBatch, market_data::MarketDataBatch};
 
 pub trait Strategist: Send {
     /// Called when the Strategy receives a batch of market data updates.
@@ -9,11 +9,12 @@ pub trait Strategist: Send {
     ///
     /// # Returns
     ///
-    /// * `Option<Allocation>` - An optional target allocation to publish.
-    fn on_market_data(&mut self, md: MarketDataBatch) -> Option<Allocation>;
+    /// * `AllocationBatch` - The batch of allocations.
+    fn on_market_data(&mut self, md: MarketDataBatch) -> AllocationBatch;
+}
 
-    /// Called periodically or on events to allow the strategy to update its state.
-    fn update(&mut self) -> Option<Allocation> {
-        None
+impl Strategist for Box<dyn Strategist> {
+    fn on_market_data(&mut self, md: MarketDataBatch) -> AllocationBatch {
+        (**self).on_market_data(md)
     }
 }
