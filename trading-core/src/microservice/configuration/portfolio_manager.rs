@@ -12,6 +12,7 @@ use crate::{
         portfolio::Actual, portfolio::Target,
     },
 };
+use trading::Manager;
 
 lazy_static! {
     pub(crate) static ref PORTFOLIO_MANAGER_MANIFEST: ServiceBlueprint = ServiceBlueprint {
@@ -48,19 +49,6 @@ lazy_static! {
 pub struct PortfolioManager<State> {
     manifest: ServiceBlueprint,
     _state_phantom: std::marker::PhantomData<State>,
-}
-
-/// The trait that users must implement to define their Portfolio Manager logic.
-pub trait Manager {
-    /// Called when a new target allocation is received from the Multiplexer.
-    /// Should return a Target portfolio if a new one should be published.
-    fn on_allocation(&mut self, batch: AllocationBatch) -> Option<Target>;
-
-    /// Called when a portfolio update is received from the Execution Engine.
-    fn on_portfolio(&mut self, portfolio: Actual) -> Option<Target>;
-
-    /// Called when a market data update is received.
-    fn on_market_data(&mut self, market_data: PriceUpdate) -> Option<Target>;
 }
 
 impl<State> PortfolioManager<State> {

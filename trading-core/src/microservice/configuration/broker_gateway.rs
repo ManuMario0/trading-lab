@@ -9,6 +9,7 @@ use crate::{
     microservice::configuration::Configurable,
     model::{execution::ExecutionResult, identity::Id, order::Order, portfolio::Actual},
 };
+use trading::Broker;
 
 lazy_static! {
     pub(crate) static ref BROKER_GATEWAY_MANIFEST: ServiceBlueprint = ServiceBlueprint {
@@ -39,15 +40,6 @@ lazy_static! {
 pub struct BrokerGateway<State> {
     manifest: ServiceBlueprint,
     _state_phantom: std::marker::PhantomData<State>,
-}
-
-/// The trait that users must implement to define their Broker Gateway logic.
-/// This adapts the internal order format to the external broker API.
-pub trait Broker {
-    /// Called when an order is received from the Execution Engine.
-    /// Should process the order (send to broker) and return any immediate updates (e.g. Pending/Rejected status)
-    /// or portfolio updates (e.g. margin usage).
-    fn on_order(&mut self, order: Order) -> (Vec<ExecutionResult>, Option<Actual>);
 }
 
 impl<State> BrokerGateway<State> {

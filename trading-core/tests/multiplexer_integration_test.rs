@@ -2,11 +2,12 @@ use clap::Parser;
 use std::collections::HashMap;
 use std::thread;
 use std::time::Duration;
+use trading::Multiplexist;
 use trading_core::admin::command::{AdminCommand, AdminPayload};
 use trading_core::args::CommonArgs;
 use trading_core::comms::{build_publisher, build_subscriber, Address, Packet};
 use trading_core::manifest::{Binding, ServiceBindings, Source};
-use trading_core::microservice::configuration::multiplexer::{Multiplexer, Multiplexist};
+use trading_core::microservice::configuration::multiplexer::Multiplexer;
 use trading_core::microservice::configuration::Configuration;
 use trading_core::microservice::Microservice;
 use trading_core::model::{
@@ -17,7 +18,7 @@ use trading_core::model::{
 #[derive(Default)]
 struct TestState;
 
-impl Multiplexist<TestState> for TestState {
+impl Multiplexist for TestState {
     fn on_allocation_batch(&mut self, source_id: usize, batch: AllocationBatch) -> AllocationBatch {
         println!("Received allocation batch from source_id: {}", source_id);
         batch // Echo back
@@ -40,10 +41,10 @@ fn test_multiplexer_dynamic_add_strategy() {
     let execution_addr = Address::zmq_tcp("127.0.0.1", execution_port);
 
     // 2. Setup Dummy Publishers (Strategies)
-    let id1 = Identity::new("strategy_1", "1.0");
+    let id1 = Identity::new("strategy_1", "1.0", 1);
     let publisher1 =
         build_publisher::<AllocationBatch>(&strategy_1_addr, id1.get_identifier()).unwrap();
-    let id2 = Identity::new("strategy_2", "1.0");
+    let id2 = Identity::new("strategy_2", "1.0", 2);
     let _publisher2 =
         build_publisher::<AllocationBatch>(&strategy_2_addr, id2.get_identifier()).unwrap();
 

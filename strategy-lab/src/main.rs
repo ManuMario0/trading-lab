@@ -1,17 +1,15 @@
 use anyhow::Result;
 use clap::Parser;
 use log::info;
+use trading::{
+    model::allocation::Allocation, model::allocation_batch::AllocationBatch,
+    model::market_data::MarketDataBatch, Strategist,
+};
 use trading_core::{
     args::CommonArgs,
     microservice::{
-        configuration::{
-            strategy::{Strategist, Strategy},
-            Configuration,
-        },
+        configuration::{strategy::Strategy, Configuration},
         Microservice,
-    },
-    model::{
-        allocation::Allocation, allocation_batch::AllocationBatch, market_data::MarketDataBatch,
     },
 };
 
@@ -20,12 +18,12 @@ struct DummyStrategy {
     allocation_amount: f64,
 }
 
-impl Strategist<DummyStrategy> for DummyStrategy {
-    fn on_market_data(&mut self, batch: MarketDataBatch) -> AllocationBatch {
+impl Strategist for DummyStrategy {
+    fn on_market_data(&mut self, batch: MarketDataBatch) -> Option<Allocation> {
         // info!("Received batch with {} updates", batch.get_count());
 
         // Simple dummy logic: always allocate fixed amount to instrument 1 if present
-        let mut allocations = Vec::new();
+
         // Since we want to output a batch of decisions corresponding to the input,
         // we should conceptually iterate.
         // For this dummy strategy, we just generate ONE decision based on the latest update
@@ -34,16 +32,15 @@ impl Strategist<DummyStrategy> for DummyStrategy {
 
         // Let's implement the "Pure" batch logic: 1 Input -> 1 Output.
         // But for simplicity in this dummy, let's just create one allocation for the batch.
-        // Wait, the architecture requires consistent types.
 
         let count = batch.get_count();
         if count > 0 {
             let mut allocation = self.allocation.clone();
             allocation.update_position(1, self.allocation_amount);
-            allocations.push(allocation);
+            Some(allocation)
+        } else {
+            None
         }
-
-        AllocationBatch::new(allocations)
     }
 }
 

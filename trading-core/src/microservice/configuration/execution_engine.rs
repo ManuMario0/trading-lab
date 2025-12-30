@@ -12,6 +12,7 @@ use crate::{
         portfolio::Target,
     },
 };
+use trading::Executor;
 
 lazy_static! {
     pub(crate) static ref EXECUTION_ENGINE_MANIFEST: ServiceBlueprint = ServiceBlueprint {
@@ -52,43 +53,6 @@ pub struct ExecutionEngine<State> {
     _state_phantom: std::marker::PhantomData<State>,
 }
 
-/// The trait that users must implement to define their Execution Logic.
-pub trait Executor {
-    /// Called when a new target portfolio is received from the Portfolio Manager.
-    /// Should return a list of Orders to be sent to the broker.
-    fn on_target(&mut self, target: Target) -> Vec<Order>;
-
-    /// Called when an execution report is received from the Broker.
-    /// Should return a list of Orders (e.g. if partial fill triggers a mod).
-    fn on_execution(&mut self, execution: ExecutionResult) -> Vec<Order>;
-
-    // Note: We might want a method to get the current portfolio state to publish it
-    // periodically or after events, but for now we'll assume the executor assumes responsibility
-    // or we can add a return type.
-    // Let's refine the return type to allow publishing portfolio updates as well.
-}
-
-// Extending the trait return types might be cleaner.
-// For now, let's stick to the plan: return Vec<Order>.
-// Wait, the plan said "Output: portfolio". How do we publish it?
-// We should probably allow returning Option<Actual> as well.
-// Let's modify the trait slightly from the plan to be more functional.
-
-pub trait ExecutorExtended {
-    fn on_target(&mut self, target: Target) -> (Vec<Order>, Option<Actual>);
-    fn on_execution(&mut self, execution: ExecutionResult) -> (Vec<Order>, Option<Actual>);
-}
-// But likely the user wants to implement `Executor`. Let's stick to a simpler trait
-// and maybe rely on internal state publishing or just add it to return type.
-// Tuple return type is robust.
-
-pub trait ExecutorWithPortfolio {
-    fn on_target(&mut self, target: Target) -> (Vec<Order>, Option<Actual>);
-    fn on_execution(&mut self, execution: ExecutionResult) -> (Vec<Order>, Option<Actual>);
-}
-
-// Let's use the name Executor but with this signature.
-
 impl<State> ExecutionEngine<State> {
     pub fn new() -> Self {
         Self {
@@ -100,7 +64,7 @@ impl<State> ExecutionEngine<State> {
 
 impl<State> Configurable for ExecutionEngine<State>
 where
-    State: ExecutorWithPortfolio + Send + 'static,
+    State: Executor + Send + 'static,
 {
     type State = State;
 
@@ -118,7 +82,7 @@ fn create_execution_engine_runner_manager<State>(
     state: Arc<Mutex<State>>,
 ) -> Result<RunnerManager, String>
 where
-    State: ExecutorWithPortfolio + Send + 'static,
+    State: Executor + Send + 'static,
 {
     let mut runner_manager = RunnerManager::new();
 

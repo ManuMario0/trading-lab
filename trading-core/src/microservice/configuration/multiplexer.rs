@@ -9,6 +9,7 @@ use crate::{
     microservice::configuration::Configurable,
     model::{allocation_batch::AllocationBatch, identity::Id},
 };
+use trading::Multiplexist;
 
 lazy_static! {
     pub(crate) static ref MULTIPLEXER_MANIFEST: ServiceBlueprint = ServiceBlueprint {
@@ -33,14 +34,6 @@ pub struct Multiplexer<State> {
     _state_phantom: std::marker::PhantomData<State>,
 }
 
-pub trait Multiplexist<State> {
-    fn on_allocation_batch(&mut self, source_id: usize, batch: AllocationBatch) -> AllocationBatch;
-
-    fn make_multiplexer() -> Multiplexer<State> {
-        Multiplexer::new()
-    }
-}
-
 impl<State> Multiplexer<State> {
     pub fn new() -> Self {
         Self {
@@ -52,7 +45,7 @@ impl<State> Multiplexer<State> {
 
 impl<State> Configurable for Multiplexer<State>
 where
-    State: Multiplexist<State> + Send + 'static,
+    State: Multiplexist + Send + 'static,
 {
     type State = State;
 
@@ -70,7 +63,7 @@ fn create_multiplexer_runner_manager<State>(
     state: Arc<Mutex<State>>,
 ) -> Result<RunnerManager, String>
 where
-    State: Multiplexist<State> + Send + 'static,
+    State: Multiplexist + Send + 'static,
 {
     let mut runner_manager = RunnerManager::new();
 

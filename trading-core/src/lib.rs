@@ -17,4 +17,5 @@ pub mod framework;
 pub mod fs;
 pub mod manifest;
 pub mod microservice;
-pub mod model;
+// pub mod model; // Moved to trading crate
+pub use trading::model;

@@ -1,13 +1,3 @@
-//! Core data models and types shared across the trading platform.
-//!
-//! This module defines the fundamental data structures (Orders, Instruments, etc.)
-//! used in the system. By defining them in a shared location, we ensure that
-//! serialization formats (JSON, binary) are identical across Rust and C++ services.
-//!
-//! # Submodules
-//! - [`instrument`]: Defines tradable assets (Spot, Future, Option).
-//! - [`order`]: Defines trading orders (Limit, Market, Stop).
-
 pub mod allocation;
 pub mod allocation_batch;
 pub mod execution;
@@ -21,6 +11,7 @@ pub mod portfolio;
 
 pub use allocation::Allocation;
 pub use execution::{ExecutionResult, ExecutionStatus};
+pub use identity::Identity;
 pub use instrument::Instrument;
 pub use instrument::InstrumentId;
 pub use instrument_db::InstrumentDB;

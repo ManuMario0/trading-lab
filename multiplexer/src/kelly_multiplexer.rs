@@ -1,7 +1,10 @@
 use log::info;
 use std::collections::HashMap;
-use trading_core::microservice::configuration::multiplexer::Multiplexist;
-use trading_core::model::{allocation_batch::AllocationBatch, identity::Identity, Allocation};
+use trading::model::{
+    allocation::Allocation, allocation_batch::AllocationBatch, identity::Identity,
+};
+use trading::Multiplexist;
+use trading_core::args::CommonArgs;
 
 #[derive(Debug, Clone)]
 pub struct MultiplexerConfig {
@@ -30,7 +33,11 @@ pub struct KellyMultiplexer {
 impl KellyMultiplexer {
     pub fn new(config: MultiplexerConfig) -> Self {
         Self {
-            identity: Identity::new("kelly_multiplexer", "1.0.0"),
+            identity: Identity::new(
+                "kelly_multiplexer",
+                "1.0.0",
+                CommonArgs::new().get_service_id(),
+            ),
             config,
             clients: HashMap::new(),
         }
@@ -94,11 +101,13 @@ impl KellyMultiplexer {
     }
 }
 
-impl Multiplexist<KellyMultiplexer> for KellyMultiplexer {
+impl Multiplexist for KellyMultiplexer {
     fn on_allocation_batch(&mut self, source_id: usize, batch: AllocationBatch) -> AllocationBatch {
         let mut results = Vec::new();
 
         for allocation in batch.iter() {
+            // Note: In real system, source_id from args would distinguish clients.
+            // For now, we trust the param.
             if let Some(client) = self.clients.get_mut(&source_id) {
                 client.portfolio = allocation.clone();
             } else {

@@ -4,16 +4,14 @@ use std::{
     time::Duration,
 };
 
+use trading::{Broker, Executor, Manager, Multiplexist};
 use trading_core::{
     args::CommonArgs,
     comms::address::Address,
     manifest::{Binding, PortDefinition, ServiceBindings},
     microservice::configuration::{
-        broker_gateway::{Broker, BrokerGateway},
-        execution_engine::{ExecutionEngine, ExecutorWithPortfolio},
-        multiplexer::{Multiplexer, Multiplexist},
-        portfolio_manager::{Manager, PortfolioManager},
-        Configuration,
+        broker_gateway::BrokerGateway, execution_engine::ExecutionEngine, multiplexer::Multiplexer,
+        portfolio_manager::PortfolioManager, Configuration,
     },
     model::{
         allocation::{Allocation, Position},
@@ -30,7 +28,7 @@ use trading_core::{
 
 // A simple Multiplexist that just forwards the last allocation
 struct SimpleMultiplexer;
-impl Multiplexist<SimpleMultiplexer> for SimpleMultiplexer {
+impl Multiplexist for SimpleMultiplexer {
     fn on_allocation_batch(
         &mut self,
         _source_id: usize,
@@ -64,7 +62,7 @@ impl Manager for SimpleManager {
 
 // A simple Execution Engine that diffs Target vs Actual (assumes 0 actual)
 struct SimpleExecutor;
-impl ExecutorWithPortfolio for SimpleExecutor {
+impl Executor for SimpleExecutor {
     fn on_target(&mut self, target: Target) -> (Vec<Order>, Option<Actual>) {
         let mut orders = Vec::new();
         // For every position in target, create a buy order (assuming we have 0)

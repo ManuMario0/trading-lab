@@ -10,6 +10,7 @@ use crate::{
     framework::runner_manager::RunnerManager,
     model::{allocation_batch::AllocationBatch, market_data::MarketDataBatch},
 };
+use trading::Strategist; // External trait
 
 lazy_static! {
     pub(crate) static ref STRATEGY_MANIFEST: ServiceBlueprint = ServiceBlueprint {
@@ -34,17 +35,6 @@ pub struct Strategy<State> {
     _state_phantom: std::marker::PhantomData<State>,
 }
 
-pub trait Strategist<State> {
-    fn on_market_data(&mut self, market_data: MarketDataBatch) -> AllocationBatch;
-
-    /// Creates a new Strategy.
-    ///
-    /// The returned Strategy can be used to create a new Configuration instance.
-    fn make_strategy() -> Strategy<State> {
-        Strategy::new()
-    }
-}
-
 impl<State> Strategy<State> {
     pub fn new() -> Self {
         Self {
@@ -56,7 +46,7 @@ impl<State> Strategy<State> {
 
 impl<State> Configurable for Strategy<State>
 where
-    State: Strategist<State> + Send + 'static,
+    State: Strategist + Send + 'static,
 {
     type State = State;
 
@@ -74,7 +64,7 @@ pub(super) fn create_strategy_runner_manager<State>(
     state: Arc<Mutex<State>>,
 ) -> Result<RunnerManager, String>
 where
-    State: Strategist<State> + Send + 'static,
+    State: Strategist + Send + 'static,
 {
     let mut runner_manager = RunnerManager::new();
 
@@ -96,12 +86,14 @@ where
             state,
             Box::new(
                 move |state: &mut State, _config_id: Id, data: MarketDataBatch| {
-                    let allocation_batch = state.on_market_data(data);
-                    tokio::task::block_in_place(|| {
-                        tokio::runtime::Handle::current().block_on(async {
-                            let _ = publisher.send(allocation_batch).await;
+                    if let Some(allocation) = state.on_market_data(data) {
+                        let allocation_batch = AllocationBatch::new(vec![allocation]);
+                        tokio::task::block_in_place(|| {
+                            tokio::runtime::Handle::current().block_on(async {
+                                let _ = publisher.send(allocation_batch).await;
+                            });
                         });
-                    });
+                    }
                 },
             ),
             Some(source.address.clone()),

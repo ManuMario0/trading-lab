@@ -1,6 +1,5 @@
 //! Identity of an entity in the system.
 
-use crate::args::CommonArgs;
 use serde::{Deserialize, Serialize};
 
 pub type Id = usize;
@@ -23,13 +22,12 @@ impl Identity {
     ///
     /// # Returns
     ///
-    /// A new `Identity` instance.
-    pub fn new(name: &str, version: &str) -> Self {
-        let args = CommonArgs::new();
+    /// * `A new `Identity` instance.
+    pub fn new(name: &str, version: &str, identifier: Id) -> Self {
         Self {
             name: name.to_string(),
             version: version.to_string(),
-            identifier: args.get_service_id(),
+            identifier,
         }
     }
 
