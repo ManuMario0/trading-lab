@@ -4,8 +4,10 @@
 //! It manages the event loop, thread spawning, and control messages (stop, update).
 
 use crate::comms::socket::ReceiverSocket;
-use crate::comms::{build_subscriber, Address};
+use crate::comms::{build_subscriber, builder, Address};
+use crate::model::identity::Id;
 use serde::de::DeserializeOwned;
+use serde::Serialize;
 use std::{
     sync::{
         mpsc::{self, Sender},
@@ -18,10 +20,15 @@ use std::{
 pub enum RunnerCommand {
     /// Stop the runner loop and exit.
     Stop,
+
     /// Update the listening address at runtime.
     UpdateAddress(Address),
+
     /// Add a new input source dynamically (Multiplexing).
     AddInput(Address),
+
+    /// Remove an input source dynamically (Multiplexing).
+    DisconnectInput(Address),
 }
 
 /// The structure used for a runner.
@@ -47,14 +54,13 @@ impl<State, Input> Runner<State, Input> {
     /// # Returns
     ///
     /// A new `Runner` instance holding the thread handle and control channel.
-    pub fn new(
+    pub(super) fn new(
         state: Arc<Mutex<State>>,
-        callback: Box<dyn FnMut(&mut State, Input) + Send>,
-        address: Address,
+        callback: Box<dyn FnMut(&mut State, Id, Input) + Send>,
     ) -> Self
     where
         State: Send + 'static,
-        Input: Sync + Send + DeserializeOwned + 'static,
+        Input: Sync + Send + Serialize + DeserializeOwned + 'static,
     {
         let (control_tx, control_rx) = mpsc::channel();
         let handle = thread::spawn(move || {
@@ -63,7 +69,7 @@ impl<State, Input> Runner<State, Input> {
                 .enable_all()
                 .build()
                 .unwrap();
-            rt.block_on(runner_loop(control_rx, state, callback, &address));
+            rt.block_on(runner_loop(control_rx, state, callback));
         });
         Self {
             handle: Some(handle),
@@ -73,22 +79,12 @@ impl<State, Input> Runner<State, Input> {
         }
     }
 
-    /// Signals the runner to stop and joins the thread.
-    ///
-    /// # Panics
-    ///
-    /// Panics if the thread join fails or channel send fails (which shouldn't happen in normal operation).
-    pub fn stop(mut self) {
-        self.control_tx.send(RunnerCommand::Stop).unwrap();
-        self.handle.take().unwrap().join().unwrap();
-    }
-
     /// Updates the listening address of the running loop.
     ///
     /// # Arguments
     ///
     /// * `address` - The new address to bind/connect to.
-    pub fn update_address(&mut self, address: Address) {
+    fn update_address(&mut self, address: Address) {
         self.control_tx
             .send(RunnerCommand::UpdateAddress(address))
             .unwrap();
@@ -99,21 +95,46 @@ impl<State, Input> Runner<State, Input> {
     /// # Arguments
     ///
     /// * `address` - The address to connect to.
-    pub fn add_input(&mut self, address: Address) {
+    fn add_input(&mut self, address: Address) {
         self.control_tx
             .send(RunnerCommand::AddInput(address))
             .unwrap();
+    }
+
+    /// Disconnects an input source from the runner.
+    ///
+    /// # Arguments
+    ///
+    /// * `address` - The address to disconnect from.
+    fn disconnect_input(&mut self, address: Address) {
+        self.control_tx
+            .send(RunnerCommand::DisconnectInput(address))
+            .unwrap();
+    }
+
+    /// Shuts down the runner.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the thread join fails or channel send fails (which shouldn't happen in normal operation).
+    fn shutdown(&mut self) {
+        self.control_tx.send(RunnerCommand::Stop).unwrap();
+        if let Some(handle) = self.handle.take() {
+            handle.join().unwrap();
+        }
     }
 }
 
 /// A trait for type-erased runners, allowing them to be stored in a homogeneous collection.
 pub(crate) trait ManagedRunner: Send {
-    /// Stops the runner.
-    fn stop(self: Box<Self>);
+    /// Shuts down the runner.
+    fn shutdown(&mut self);
     /// Updates the runner's address.
     fn update_address(&mut self, address: Address);
     /// Adds a connection source.
     fn add_input(&mut self, address: Address);
+    /// Disconnects an input source from the runner.
+    fn disconnect_input(&mut self, address: Address);
 }
 
 impl<State, Input> ManagedRunner for Runner<State, Input>
@@ -121,8 +142,8 @@ where
     State: Send + 'static,
     Input: Sync + Send + DeserializeOwned + 'static,
 {
-    fn stop(self: Box<Self>) {
-        (*self).stop()
+    fn shutdown(&mut self) {
+        self.shutdown()
     }
 
     fn update_address(&mut self, address: Address) {
@@ -132,18 +153,21 @@ where
     fn add_input(&mut self, address: Address) {
         self.add_input(address)
     }
+
+    fn disconnect_input(&mut self, address: Address) {
+        self.disconnect_input(address)
+    }
 }
 
 async fn runner_loop<State, Input>(
     control_rx: mpsc::Receiver<RunnerCommand>,
     state: Arc<Mutex<State>>,
-    mut callback: Box<dyn FnMut(&mut State, Input) + Send>,
-    address: &Address,
+    mut callback: Box<dyn FnMut(&mut State, Id, Input) + Send>,
 ) where
-    Input: DeserializeOwned + Sync + Send + 'static,
+    Input: Serialize + DeserializeOwned + Sync + Send + 'static,
 {
     // First setup the listener on the address
-    let mut listener: ReceiverSocket<Input> = build_subscriber(address).unwrap();
+    let mut listener: ReceiverSocket<Input> = builder::build_empty_subscriber().unwrap();
     let mut busy_count = 0;
 
     loop {
@@ -151,9 +175,9 @@ async fn runner_loop<State, Input>(
 
         // 1. Try to receive a message
         match listener.try_recv().await {
-            Ok(msg) => {
+            Ok(packet) => {
                 // Call the callback
-                callback(&mut state.lock().unwrap(), msg);
+                callback(&mut state.lock().unwrap(), packet.id(), packet.data());
                 received_work = true;
             }
             Err(_) => (),
@@ -171,6 +195,10 @@ async fn runner_loop<State, Input>(
                 // For adding inputs, we use connect on the existing listener
                 // We unwrap here as this is a critical configuration error if it fails
                 listener.connect(&addr).await.unwrap();
+                received_work = true;
+            }
+            Ok(RunnerCommand::DisconnectInput(addr)) => {
+                listener.disconnect(&addr).await.unwrap();
                 received_work = true;
             }
             Err(_) => (),

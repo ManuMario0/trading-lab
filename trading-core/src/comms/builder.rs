@@ -5,7 +5,10 @@
 use super::address::Address;
 use super::socket::{ReceiverSocket, SenderSocket};
 use super::transports::zmq::{ZmqPublisher, ZmqSubscriber};
-use crate::comms::transport::{TransportInput, TransportOutput};
+use crate::comms::socket::ReplySocket;
+use crate::comms::transport::{TransportDuplex, TransportInput, TransportOutput};
+use crate::comms::transports::zmq::ZmqDuplex;
+use crate::model::identity::Id;
 use anyhow::{bail, Result};
 use serde::{de::DeserializeOwned, Serialize};
 
@@ -19,9 +22,9 @@ use serde::{de::DeserializeOwned, Serialize};
 ///
 /// * `Ok(SenderSocket)` if successful.
 /// * `Err` if the address type is unsupported or initialization fails.
-pub fn build_publisher<T>(address: &Address) -> Result<SenderSocket<T>>
+pub fn build_publisher<T>(address: &Address, id: Id) -> Result<SenderSocket<T>>
 where
-    T: Serialize + Send + Sync + 'static,
+    T: Serialize + DeserializeOwned + Send + Sync + 'static,
 {
     let transport: Box<dyn TransportOutput> = match address {
         Address::Zmq(addr_str) => {
@@ -35,7 +38,7 @@ where
             bail!("Cannot build a publisher with an empty address");
         }
     };
-    Ok(SenderSocket::new(transport))
+    Ok(SenderSocket::new(transport, id))
 }
 
 /// Factory to create Receiver endpoints.
@@ -77,4 +80,21 @@ where
     // Zmq implementation
     let transport: Box<dyn TransportInput> = Box::new(ZmqSubscriber::new_empty()?);
     Ok(ReceiverSocket::new(transport))
+}
+
+pub fn build_replier<T>(address: &Address, id: Id) -> Result<ReplySocket<T>>
+where
+    T: DeserializeOwned + Serialize + Send + Sync + 'static,
+{
+    let transport: Box<dyn TransportDuplex> = match address {
+        Address::Zmq(addr_str) => {
+            let s = ZmqDuplex::new(addr_str)?;
+            Box::new(s)
+        }
+        Address::Memory(_) => {
+            bail!("Memory channels not yet implemented for Subscriber");
+        }
+        Address::Empty => bail!("Cannot build a replier with an empty address"),
+    };
+    Ok(ReplySocket::new(transport, id))
 }

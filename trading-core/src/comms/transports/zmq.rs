@@ -1,5 +1,5 @@
 use crate::comms::address::Address;
-use crate::comms::transport::{TransportInput, TransportOutput};
+use crate::comms::transport::{TransportDuplex, TransportInput, TransportOutput};
 use anyhow::{Context, Result};
 use async_trait::async_trait;
 use std::sync::Mutex;
@@ -91,5 +91,51 @@ impl TransportInput for ZmqSubscriber {
             }
             _ => anyhow::bail!("ZmqSubscriber only supports Zmq addresses"),
         }
+    }
+
+    async fn disconnect(&mut self, address: &Address) -> Result<()> {
+        let socket = self.socket.lock().unwrap();
+        match address {
+            Address::Zmq(endpoint) => {
+                socket.disconnect(endpoint)?;
+                Ok(())
+            }
+            _ => anyhow::bail!("ZmqSubscriber only supports Zmq addresses"),
+        }
+    }
+}
+
+pub struct ZmqDuplex {
+    socket: Mutex<Socket>,
+}
+
+impl ZmqDuplex {
+    pub fn new(address: &str) -> Result<Self> {
+        let context = ZmqContext::new();
+        let socket = context.socket(SocketType::REP)?;
+        socket.bind(address)?;
+        Ok(Self {
+            socket: Mutex::new(socket),
+        })
+    }
+}
+
+#[async_trait]
+impl TransportDuplex for ZmqDuplex {
+    async fn send_bytes(&self, data: &[u8]) -> Result<()> {
+        let socket = self.socket.lock().unwrap();
+        // ZMQ is fast enough that we can use the blocking call inside the lock
+        socket
+            .send(data, 0)
+            .context("Failed to send ZMQ message (Transport)")
+    }
+
+    async fn recv_bytes(&mut self) -> Result<Vec<u8>> {
+        let socket = self.socket.lock().unwrap();
+        // Just read the data frame
+        let data = socket
+            .recv_bytes(0)
+            .context("Failed to receive data payload")?;
+        Ok(data)
     }
 }

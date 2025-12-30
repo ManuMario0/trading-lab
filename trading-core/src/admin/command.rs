@@ -1,9 +1,8 @@
 use serde::{Deserialize, Serialize};
 
-use crate::comms::Address;
+use crate::{comms::Address, manifest::ServiceBindings};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(tag = "type", content = "payload")]
 pub enum AdminPayload {
     Command(AdminCommand),
     Response(AdminResponse),
@@ -18,7 +17,7 @@ impl AdminPayload {
     ///
     /// # Returns
     ///
-    /// A `AdminPayload::Command`.
+    /// * `AdminPayload::Command`.
     pub fn new_command(command: AdminCommand) -> Self {
         Self::Command(command)
     }
@@ -31,7 +30,7 @@ impl AdminPayload {
     ///
     /// # Returns
     ///
-    /// A `AdminPayload::Response`.
+    /// * `AdminPayload::Response`.
     pub fn new_response(response: AdminResponse) -> Self {
         Self::Response(response)
     }
@@ -41,7 +40,6 @@ impl AdminPayload {
 ///
 /// Using an Enum ensures type safety and prevents invalid command strings.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(tag = "action", content = "payload")]
 pub enum AdminCommand {
     /// Update a configuration parameter.
     UpdateRegistry { key: String, value: String },
@@ -58,8 +56,8 @@ pub enum AdminCommand {
     /// Request for registry
     Registry,
 
-    /// Adds a new strategy connection dynamically (Multiplexer only).
-    AddStrategy { address: Address },
+    /// Update serivce configuration
+    UpdateBindings { config: ServiceBindings },
 
     /// Catch-all for forward compatibility (optional).
     /// If an unknown command is received, it falls here (if using serde_json).
@@ -80,7 +78,6 @@ impl AdminCommand {
 
 /// Represents a response sent back from the service to the Admin.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(tag = "status", content = "payload")]
 pub enum AdminResponse {
     /// Command processed successfully.
     Ok,

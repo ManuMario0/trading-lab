@@ -2,7 +2,9 @@
 //!
 //! Provides `ReceiverSocket` and `SenderSocket` which handle serialization/deserialization automatically.
 
-use crate::comms::transport::{TransportInput, TransportOutput};
+use crate::comms::packet::Packet;
+use crate::comms::transport::{TransportDuplex, TransportInput, TransportOutput};
+use crate::model::identity::Id;
 use anyhow::Result;
 use serde::{de::DeserializeOwned, Serialize};
 use std::marker::PhantomData;
@@ -35,24 +37,24 @@ where
     ///
     /// # Returns
     ///
-    /// * `Ok(C)` containing the deserialized message.
+    /// * `Ok(Packet<C>)` containing the deserialized message with sender info.
     /// * `Err` if transport fails or deserialization error occurs.
-    pub async fn recv(&mut self) -> Result<C> {
+    pub async fn recv(&mut self) -> Result<Packet<C>> {
         let bytes = self.transport.recv_bytes().await?;
-        let data = bincode::deserialize(&bytes)?;
-        Ok(data)
+        let packet: Packet<C> = bincode::deserialize(&bytes)?;
+        Ok(packet)
     }
 
     /// Receives the next message and deserializes it (Non-blocking attempt).
     ///
     /// # Returns
     ///
-    /// * `Ok(C)` if a message is immediately available.
+    /// * `Ok(Packet<C>)` if a message is immediately available.
     /// * `Err` if no message is available (`EAGAIN` equivalent) or other error.
-    pub async fn try_recv(&mut self) -> Result<C> {
+    pub async fn try_recv(&mut self) -> Result<Packet<C>> {
         let bytes = self.transport.try_recv().await?;
-        let data = bincode::deserialize(&bytes)?;
-        Ok(data)
+        let packet: Packet<C> = bincode::deserialize(&bytes)?;
+        Ok(packet)
     }
 
     /// Connects to a new publisher/source dynamically.
@@ -63,26 +65,37 @@ where
     pub async fn connect(&mut self, address: &crate::comms::address::Address) -> Result<()> {
         self.transport.connect(address).await
     }
+
+    /// Disconnects from a publisher/source dynamically.
+    ///
+    /// # Arguments
+    ///
+    /// * `address` - The address to disconnect from.
+    pub async fn disconnect(&mut self, address: &crate::comms::address::Address) -> Result<()> {
+        self.transport.disconnect(address).await
+    }
 }
 
 /// A strongly-typed output socket.
 pub struct SenderSocket<C> {
     transport: Box<dyn TransportOutput>,
+    id: Id,
     _marker: PhantomData<C>,
 }
 
 impl<C> SenderSocket<C>
 where
-    C: Serialize,
+    C: Serialize + DeserializeOwned,
 {
     /// Creates a new SenderSocket from a raw transport backend.
     ///
     /// # Arguments
     ///
     /// * `transport` - The underlying transport implementation.
-    pub fn new(transport: Box<dyn TransportOutput>) -> Self {
+    pub fn new(transport: Box<dyn TransportOutput>, id: Id) -> Self {
         Self {
             transport,
+            id,
             _marker: PhantomData,
         }
     }
@@ -97,9 +110,77 @@ where
     ///
     /// * `Ok(())` on success.
     /// * `Err` if serialization or transport fails.
-    pub async fn send(&self, data: &C) -> Result<()> {
-        let bytes = bincode::serialize(data)?;
+    pub async fn send(&self, data: C) -> Result<()> {
+        let packet = Packet::new(self.id, data);
+        let bytes = bincode::serialize(&packet)?;
         self.transport.send_bytes(&bytes).await
+    }
+}
+
+pub(crate) struct ResponseHandle<'a, C> {
+    transport: &'a Box<dyn TransportDuplex>,
+    id: Id,
+    _marker: PhantomData<C>,
+}
+
+impl<'a, C> ResponseHandle<'a, C>
+where
+    C: Serialize + DeserializeOwned,
+{
+    /// We ensure we consume the object to prevent double use.
+    pub async fn send_reply(self, data: C) -> Result<()> {
+        let packet = Packet::new(self.id, data);
+        let bytes = bincode::serialize(&packet)?;
+        self.transport.send_bytes(&bytes).await
+    }
+}
+
+pub struct ReplySocket<C> {
+    transport: Box<dyn TransportDuplex>,
+    id: Id,
+    _marker: PhantomData<C>,
+}
+
+impl<C> ReplySocket<C>
+where
+    C: DeserializeOwned + Serialize,
+{
+    /// Creates a new ReplySocket from a raw transport backend.
+    ///
+    /// # Arguments
+    ///
+    /// * `transport` - The underlying transport implementation.
+    pub(crate) fn new(transport: Box<dyn TransportDuplex>, id: Id) -> Self {
+        Self {
+            transport,
+            id,
+            _marker: PhantomData,
+        }
+    }
+
+    /// Receives the next message and deserializes it.
+    ///
+    /// # Returns
+    ///
+    /// * `Ok((C, ResponseHandle<'a, C>))` containing the deserialized message and a response handle.
+    /// * `Err` if transport fails or deserialization error occurs.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// let mut socket = ReplySocket::new(Box::new(ZmqSubscriber::new("tcp://127.0.0.1:5555")));
+    /// let (message, response_handle) = socket.recv().await?;
+    /// response_handle.send_reply(&message).await?;
+    /// ```
+    pub(crate) async fn recv<'a>(&'a mut self) -> Result<(Packet<C>, ResponseHandle<'a, C>)> {
+        let bytes = self.transport.recv_bytes().await?;
+        let packet: Packet<C> = bincode::deserialize(&bytes)?;
+        let response_handle = ResponseHandle {
+            transport: &self.transport,
+            id: self.id,
+            _marker: PhantomData,
+        };
+        Ok((packet, response_handle))
     }
 }
 
@@ -118,21 +199,28 @@ mod tests {
         let input_transport = MemoryTransportInput::new(rx);
 
         // 2. Wrap in Typed Sockets
-        let output: SenderSocket<MarketDataBatch> = SenderSocket::new(Box::new(output_transport));
+        let output: SenderSocket<MarketDataBatch> =
+            SenderSocket::new(Box::new(output_transport), Id::from(10usize));
         let mut input: ReceiverSocket<MarketDataBatch> =
             ReceiverSocket::new(Box::new(input_transport));
 
         // 3. Create Typed Data
-        let update = PriceUpdate::new(1, 150.0, 1000);
+        let update = PriceUpdate::new(1, 150.0, 150.0, 150.0, 1000);
         let batch = MarketDataBatch::new(vec![update]);
 
         // 4. Send
-        output.send(&batch).await?;
+        output.send(batch).await?;
 
         // 5. Receive & Verify
-        let received = input.recv().await?;
-        assert_eq!(received.get_updates().len(), 1);
-        assert_eq!(received.get_updates()[0].get_price(), 150.0);
+        // The received item is a Packet<MarketDataBatch>
+        let received_packet = input.recv().await?;
+        // Check the sender ID
+        assert_eq!(received_packet.id(), Id::from(10usize));
+
+        // Check the data
+        let received_data = received_packet.data();
+        assert_eq!(received_data.get_count(), 1);
+        assert_eq!(received_data.get_update_at(0).last, 150.0);
 
         Ok(())
     }

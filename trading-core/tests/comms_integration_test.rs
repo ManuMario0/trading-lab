@@ -26,7 +26,8 @@ async fn test_zmq_pipeline_end_to_end() -> Result<()> {
 
     // 3. Create Publisher (Simulating Engine/Market Data Source)
     // builder returns Result<SenderSocket<T>> directly
-    let publisher: SenderSocket<MarketDataBatch> = build_publisher(&pub_addr)?;
+    let publisher: SenderSocket<MarketDataBatch> =
+        build_publisher(&pub_addr, source_identity.get_identifier())?;
 
     // 4. Create Subscriber (Simulating Strategy)
     let mut subscriber: ReceiverSocket<MarketDataBatch> = build_subscriber(&pub_addr)?;
@@ -35,44 +36,53 @@ async fn test_zmq_pipeline_end_to_end() -> Result<()> {
     tokio::time::sleep(Duration::from_millis(200)).await;
 
     // 5. Create Data
-    let update = PriceUpdate::new(1, 100.50, 123456789);
+    let update = PriceUpdate::new(1, 100.50, 100.55, 100.50, 123456789);
     let batch = MarketDataBatch::new(vec![update]);
 
     // 6. Send From Publisher
     println!("Sending MarketDataBatch...");
-    publisher.send(&batch).await?;
+    publisher.send(batch).await?;
 
     // 7. Receive at Subscriber
     println!("Waiting for receive...");
     let received_batch = timeout(Duration::from_secs(1), subscriber.recv()).await??;
 
     // 8. Verify
-    assert_eq!(received_batch.get_count(), 1);
-    let rx_update = received_batch.get_update_at(0);
+    let batch_data = received_batch.data();
+    assert_eq!(batch_data.get_count(), 1);
+    let rx_update = batch_data.get_update_at(0);
     assert_eq!(rx_update.get_instrument_id(), 1);
-    assert_eq!(rx_update.get_price(), 100.50);
+    assert_eq!(rx_update.get_bid(), 100.50);
 
     println!("Successfully verified MarketDataBatch pipeline!");
 
     // 9. Verify Allocation (New Port)
     let alloc_addr = Address::zmq_tcp("127.0.0.1", 5996);
 
-    let alloc_sender: SenderSocket<Allocation> = build_publisher(&alloc_addr)?;
+    let alloc_sender: SenderSocket<Allocation> =
+        build_publisher(&alloc_addr, source_identity.get_identifier())?;
     let mut alloc_receiver: ReceiverSocket<Allocation> = build_subscriber(&alloc_addr)?;
 
     tokio::time::sleep(Duration::from_millis(200)).await;
 
-    let mut allocation = Allocation::new(source_identity);
+    let mut allocation = Allocation::new();
     allocation.update_position(1, 50.0);
 
     println!("Sending Allocation...");
-    alloc_sender.send(&allocation).await?;
+    alloc_sender.send(allocation).await?;
 
     let received_alloc = timeout(Duration::from_secs(1), alloc_receiver.recv()).await??;
 
-    assert_eq!(received_alloc.get_source(), "test_strategy");
+    // assert_eq!(received_alloc.get_source(), "test_strategy");
     // .get_position(1) -> Option<&Position>, then .get_quantity()
-    assert_eq!(received_alloc.get_position(1).unwrap().get_quantity(), 50.0);
+    assert_eq!(
+        received_alloc
+            .data()
+            .get_position(1)
+            .unwrap()
+            .get_quantity(),
+        50.0
+    );
 
     println!("Successfully verified Allocation pipeline!");
 

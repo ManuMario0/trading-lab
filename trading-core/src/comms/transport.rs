@@ -20,11 +20,30 @@ pub trait TransportInput: Send + Sync {
     ///
     /// * `address` - The address to connect to.
     async fn connect(&mut self, address: &Address) -> Result<()>;
+
+    /// Disconnects from a publisher/source dynamically.
+    ///
+    /// # Arguments
+    ///
+    /// * `address` - The address to disconnect from.
+    async fn disconnect(&mut self, address: &Address) -> Result<()>;
 }
 
 /// Abstraction for the outgoing transport layer (sending raw bytes).
 #[async_trait]
 pub trait TransportOutput: Send + Sync {
+    /// Send a full frame/message.
+    async fn send_bytes(&self, data: &[u8]) -> Result<()>;
+}
+
+/// Abstraction for the duplex transport layer (reading and writing raw bytes).
+///
+/// This is a trait that extends both `TransportInput` and `TransportOutput`,
+/// providing a unified interface for bidirectional communication.
+#[async_trait]
+pub trait TransportDuplex: Send + Sync {
+    /// Receive the next full frame/message as bytes.
+    async fn recv_bytes(&mut self) -> Result<Vec<u8>>;
     /// Send a full frame/message.
     async fn send_bytes(&self, data: &[u8]) -> Result<()>;
 }

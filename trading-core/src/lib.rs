@@ -13,9 +13,8 @@
 pub mod admin;
 pub mod args;
 pub mod comms;
-
 pub mod framework;
 pub mod fs;
-
+pub mod manifest;
 pub mod microservice;
 pub mod model;

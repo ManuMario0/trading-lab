@@ -1,4 +1,4 @@
-use crate::model::{identity::Identity, instrument::InstrumentId};
+use crate::model::instrument::InstrumentId;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
@@ -47,10 +47,6 @@ impl Position {
 /// It does not track cash, costs, or PnL.
 #[derive(Debug, Default, Clone, Serialize, Deserialize)]
 pub struct Allocation {
-    /// The ID of the allocation.
-    id: usize,
-    /// The source of the allocation, e.g. "strategy" or "portfolio".
-    source: String,
     /// The timestamp of the allocation.
     timestamp: u128,
     /// The positions in the allocation.
@@ -58,19 +54,13 @@ pub struct Allocation {
 }
 
 impl Allocation {
-    /// Creates a new Allocation instance for a specific identity.
-    ///
-    /// # Arguments
-    ///
-    /// * `identity` - The identity of the source generating this allocation (e.g., a strategy).
+    /// Creates a new Allocation instance.
     ///
     /// # Returns
     ///
-    /// A new, empty `Allocation` instance tagged with the identity and current timestamp.
-    pub fn new(identity: Identity) -> Self {
+    /// A new, empty `Allocation` instance tagged with current timestamp.
+    pub fn new() -> Self {
         Self {
-            id: identity.get_identifier(),
-            source: identity.get_name().to_string(),
             timestamp: std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
                 .unwrap()
@@ -113,14 +103,6 @@ impl Allocation {
         &self.positions
     }
 
-    pub fn get_id(&self) -> usize {
-        self.id
-    }
-
-    pub fn get_source(&self) -> &str {
-        &self.source
-    }
-
     pub fn get_timestamp(&self) -> u128 {
         self.timestamp
     }
@@ -129,11 +111,10 @@ impl Allocation {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::model::identity::Identity;
 
     #[test]
     fn test_allocation_update() {
-        let mut allocation = Allocation::new(Identity::new("strategy", "1.0"));
+        let mut allocation = Allocation::new();
 
         // Add position
         allocation.update_position(1, 10.0);

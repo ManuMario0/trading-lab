@@ -1,83 +1,105 @@
 use clap::Parser;
+use std::collections::HashMap;
 use std::thread;
 use std::time::Duration;
 use trading_core::admin::command::{AdminCommand, AdminPayload};
 use trading_core::args::CommonArgs;
-use trading_core::comms::{build_publisher, build_subscriber, Address};
+use trading_core::comms::{build_publisher, build_subscriber, Address, Packet};
+use trading_core::manifest::{Binding, ServiceBindings, Source};
+use trading_core::microservice::configuration::multiplexer::{Multiplexer, Multiplexist};
 use trading_core::microservice::configuration::Configuration;
 use trading_core::microservice::Microservice;
-use trading_core::model::allocation::Allocation;
+use trading_core::model::{
+    allocation::Allocation, allocation_batch::AllocationBatch, identity::Identity,
+};
 
 // Mock State
 #[derive(Default)]
 struct TestState;
 
+impl Multiplexist<TestState> for TestState {
+    fn on_allocation_batch(&mut self, source_id: usize, batch: AllocationBatch) -> AllocationBatch {
+        println!("Received allocation batch from source_id: {}", source_id);
+        batch // Echo back
+    }
+}
+
 #[test]
 fn test_multiplexer_dynamic_add_strategy() {
     // 1. Setup Addresses
     // Use high ports to avoid conflicts
-    // Use high ports to avoid conflicts
-    let admin_port = 61001;
-    let strategy_1_port = 61002;
-    let strategy_2_port = 61003;
-    let execution_port = 61004;
+    let admin_port = 62001;
+    let strategy_1_port = 62002;
+    let strategy_2_port = 62003;
+    let execution_port = 62004;
 
     let admin_addr_str = format!("tcp://127.0.0.1:{}", admin_port);
+    let admin_addr = Address::zmq_tcp("127.0.0.1", admin_port);
     let strategy_1_addr = Address::zmq_tcp("127.0.0.1", strategy_1_port);
     let strategy_2_addr = Address::zmq_tcp("127.0.0.1", strategy_2_port);
-    let execution_addr_str = format!("tcp://127.0.0.1:{}", execution_port);
     let execution_addr = Address::zmq_tcp("127.0.0.1", execution_port);
 
     // 2. Setup Dummy Publishers (Strategies)
-    let mut publisher1 = build_publisher::<Allocation>(&strategy_1_addr).unwrap();
-    let _publisher2 = build_publisher::<Allocation>(&strategy_2_addr).unwrap();
+    let id1 = Identity::new("strategy_1", "1.0");
+    let publisher1 =
+        build_publisher::<AllocationBatch>(&strategy_1_addr, id1.get_identifier()).unwrap();
+    let id2 = Identity::new("strategy_2", "1.0");
+    let _publisher2 =
+        build_publisher::<AllocationBatch>(&strategy_2_addr, id2.get_identifier()).unwrap();
 
     // 3. Setup Dummy Subscriber (Execution Engine)
-    // We bind here to behave like the execution engine server if it was SUB (wait, normally execution engine is SUB?)
-    // In our architecture:
-    // Strategy (PUB) -> Multiplexer (SUB / PUB) -> Execution Engine (SUB).
-    // So Multiplexer connects to Strategies (SUB connects to PUB).
-    // And Multiplexer connects to Execution Engine (PUB connects to SUB).
+    // The subscriber connects to the multiplexer's output
+    // Multiplexer binds to execution_port
+    // Subscriber connects to execution_addr
 
-    // So Multiplexer needs to BIND its output.
-    // `run_multiplexer` calls `build_publisher(&output_addr)`.
-    // `ZmqPublisher::new` likely binds.
-    // So Execution Engine connects.
-
-    // So our Test Subscriber (acting as Execution Engine) should Connect to Multiplexer's output.
-    // But Multiplexer output address is `execution_port`.
-    // So Multiplexer will BIND to `execution_port`.
-    // Test Subscriber should CONNECT to `execution_port`.
-
+    let execution_addr_clone = execution_addr.clone();
     // 4. Launch Multiplexer in a thread
     let handle = thread::spawn(move || {
-        // Mock Args: Use parse_from directly to ensure all required args are present and avoid clap panic
+        // Construct Bindings
+        let mut inputs = HashMap::new();
+        inputs.insert(
+            "admin".to_string(),
+            Binding::Single(Source {
+                address: admin_addr,
+                id: 0,
+            }),
+        );
+        // Initial dummy connection for allocation input
+        // Initial empty variadic connection
+        inputs.insert("strategies".to_string(), Binding::Variadic(HashMap::new()));
+
+        let mut outputs = HashMap::new();
+        outputs.insert(
+            "allocation".to_string(),
+            Binding::Single(Source {
+                address: execution_addr_clone,
+                id: 0,
+            }),
+        );
+
+        let bindings = ServiceBindings { inputs, outputs };
+        let bindings_json = serde_json::to_string(&bindings).unwrap();
+
+        // Mock Args: Use parse_from directly with --bindings
         let args = CommonArgs::parse_from(vec![
-            "multiplexer_test".to_string(),
-            "--admin-route".to_string(),
-            admin_addr_str,
-            "--output-port".to_string(),
-            execution_addr_str,
-            "--input-port".to_string(),
-            "tcp://127.0.0.1:0".to_string(), // Dummy unused input port
-            "--service-name".to_string(),
-            "multiplexer".to_string(),
-            "--service-id".to_string(),
-            "1".to_string(),
-            "--config-dir".to_string(),
-            "/tmp/trading_test_config".to_string(),
-            "--data-dir".to_string(),
-            "/tmp/trading_test_data".to_string(),
+            "multiplexer_test",
+            "--service-name",
+            "multiplexer",
+            "--service-id",
+            "1",
+            "--config-dir",
+            "/tmp/trading_test_config",
+            "--data-dir",
+            "/tmp/trading_test_data",
+            "--bindings",
+            &bindings_json,
         ]);
 
-        // Address Book: Map "execution_engine" to output port
-        // `Microservice::run` populates "allocation" -> args.get_output_port().
-
-        let config = Configuration::new_multiplexer(Box::new(
-            |_state: &mut TestState, allocation: Allocation| allocation,
-        ));
+        let config = Configuration::new(Multiplexer::new());
         let service = Microservice::new_with_args(args, || TestState, config);
-        service.run();
+
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        rt.block_on(service.run());
     });
 
     thread::sleep(Duration::from_millis(500)); // Wait for startup
@@ -85,31 +107,52 @@ fn test_multiplexer_dynamic_add_strategy() {
     // 5. Admin Client
     let ctx = zmq::Context::new();
     let admin_sock = ctx.socket(zmq::REQ).unwrap();
-    let admin_connect_str = format!("tcp://127.0.0.1:{}", admin_port);
-    admin_sock.connect(&admin_connect_str).unwrap();
+    admin_sock.connect(&admin_addr_str).unwrap();
+    println!("Test: Admin client connected to {}", admin_addr_str);
 
     // 6. Test Loop
-    let mut test_subscriber = build_subscriber::<Allocation>(&execution_addr).unwrap();
+    let mut test_subscriber = build_subscriber::<AllocationBatch>(&execution_addr).unwrap();
 
-    // Command 1: Add Strategy 1
-    let cmd = AdminCommand::AddStrategy {
-        address: Address::zmq_tcp("127.0.0.1", strategy_1_port),
+    // Command 1: Add Strategy 1 (Update Bindings)
+    let mut new_inputs = HashMap::new();
+    let mut strategies_map = HashMap::new();
+    strategies_map.insert(
+        "strategy_1".to_string(),
+        Source {
+            address: Address::zmq_tcp("127.0.0.1", strategy_1_port),
+            id: 1,
+        },
+    );
+    new_inputs.insert("strategies".to_string(), Binding::Variadic(strategies_map));
+
+    let update_config = ServiceBindings {
+        inputs: new_inputs,
+        outputs: HashMap::new(),
     };
-    let payload = AdminPayload::new_command(cmd);
-    let msg = serde_json::to_string(&payload).unwrap();
+
+    let cmd = AdminCommand::UpdateBindings {
+        config: update_config,
+    };
+    let payload = AdminPayload::Command(cmd);
+    let packet = Packet::new(0, payload); // ID 0 for admin
+    let msg = bincode::serialize(&packet).unwrap();
     admin_sock.send(&msg, 0).unwrap();
-    let resp = admin_sock.recv_string(0).unwrap().unwrap();
-    println!("Admin Resp: {}", resp);
-    assert!(resp.contains("Ok"));
+    let resp_bytes = admin_sock.recv_bytes(0).unwrap();
+    let resp: AdminPayload = bincode::deserialize(&resp_bytes).unwrap();
+    match resp {
+        AdminPayload::Response(trading_core::admin::command::AdminResponse::Ok) => {}
+        _ => panic!("Expected AdminResponse::Ok, got {:?}", resp),
+    }
 
     thread::sleep(Duration::from_millis(500)); // Allow connect
 
     // Publish data from Strategy 1
     let alloc1 = Allocation::default();
+    let batch1 = AllocationBatch::new(vec![alloc1]);
 
     let rt = tokio::runtime::Runtime::new().unwrap();
     rt.block_on(async {
-        publisher1.send(&alloc1).await.unwrap();
+        publisher1.send(batch1).await.unwrap();
     });
 
     // Receive
@@ -122,7 +165,7 @@ fn test_multiplexer_dynamic_add_strategy() {
     // Command 2: Shutdown
     let cmd = AdminCommand::Shutdown;
     let payload = AdminPayload::new_command(cmd);
-    let msg = serde_json::to_string(&payload).unwrap();
+    let msg = bincode::serialize(&payload).unwrap();
     admin_sock.send(&msg, 0).unwrap();
 
     handle.join().unwrap();

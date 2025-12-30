@@ -1,6 +1,7 @@
 use log::info;
 use std::collections::HashMap;
-use trading_core::model::{identity::Identity, Allocation};
+use trading_core::microservice::configuration::multiplexer::Multiplexist;
+use trading_core::model::{allocation_batch::AllocationBatch, identity::Identity, Allocation};
 
 #[derive(Debug, Clone)]
 pub struct MultiplexerConfig {
@@ -16,8 +17,8 @@ pub struct Client {
 
 #[derive(Debug)]
 pub struct StrategyParams {
-    pub mu: f64,
-    pub sigma: f64,
+    mu: f64,
+    sigma: f64,
 }
 
 pub struct KellyMultiplexer {
@@ -41,7 +42,7 @@ impl KellyMultiplexer {
             Client {
                 id,
                 strategy_params: StrategyParams { mu, sigma },
-                portfolio: Allocation::new(self.identity.clone()),
+                portfolio: Allocation::new(),
             },
         );
         info!(
@@ -55,18 +56,12 @@ impl KellyMultiplexer {
         info!("[KellyMux] Removed client {}", id);
     }
 
-    pub fn on_portfolio_received(&mut self, portfolio: Allocation) -> Option<Allocation> {
-        let id = portfolio.get_id();
-        self.clients.get_mut(&id).unwrap().portfolio = portfolio;
-        self.recalculate()
-    }
-
     pub fn recalculate(&mut self) -> Option<Allocation> {
         if self.clients.is_empty() {
             return None;
         }
 
-        let mut allocation = Allocation::new(self.identity.clone());
+        let mut allocation = Allocation::new();
 
         for (_client_id, client) in &self.clients {
             let params = &client.strategy_params;
@@ -96,5 +91,26 @@ impl KellyMultiplexer {
         }
 
         Some(allocation)
+    }
+}
+
+impl Multiplexist<KellyMultiplexer> for KellyMultiplexer {
+    fn on_allocation_batch(&mut self, source_id: usize, batch: AllocationBatch) -> AllocationBatch {
+        let mut results = Vec::new();
+
+        for allocation in batch.iter() {
+            if let Some(client) = self.clients.get_mut(&source_id) {
+                client.portfolio = allocation.clone();
+            } else {
+                self.add_client(source_id, 0.05, 0.2);
+                if let Some(client) = self.clients.get_mut(&source_id) {
+                    client.portfolio = allocation.clone();
+                }
+            }
+            if let Some(recalc) = self.recalculate() {
+                results.push(recalc);
+            }
+        }
+        AllocationBatch::new(results)
     }
 }

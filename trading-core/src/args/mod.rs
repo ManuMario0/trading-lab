@@ -16,7 +16,7 @@ thread_local! {
     static MOCK_ARGS: RefCell<Option<CommonArgs>> = RefCell::new(None);
 }
 
-use crate::comms::Address;
+use crate::manifest::ServiceBindings;
 
 /// Holds the standard configuration parameters parsed from the command line.
 ///
@@ -31,17 +31,8 @@ pub struct CommonArgs {
     #[arg(short = 'i', long)]
     service_id: usize,
 
-    /// Port for incoming ZMQ messages (SUB) - default 0 implies ephemeral/unused in some contexts, but usually required.
     #[arg(long)]
-    admin_route: String,
-
-    /// Port for outgoing ZMQ messages (PUB)
-    #[arg(long)]
-    output_port: String,
-
-    /// Port for incoming market data (SUB)
-    #[arg(long)]
-    input_port: String,
+    bindings: String,
 
     /// Path to the configuration directory
     #[arg(long)]
@@ -78,19 +69,9 @@ impl CommonArgs {
         MOCK_ARGS.with(|m| *m.borrow_mut() = Some(args));
     }
 
-    /// Returns the admin port (SUB).
-    pub fn get_admin_route(&self) -> Address {
-        Address::Zmq(self.admin_route.clone())
-    }
-
-    /// Returns the output port (PUB).
-    pub fn get_output_port(&self) -> Address {
-        Address::Zmq(self.output_port.clone())
-    }
-
-    /// Returns the input port (SUB).
-    pub fn get_input_port(&self) -> Address {
-        Address::Zmq(self.input_port.clone())
+    /// Returns the service bindings.
+    pub fn get_bindings(&self) -> ServiceBindings {
+        serde_json::from_str(&self.bindings).expect("Failed to parse bindings")
     }
 
     /// Returns the path to the configuration directory.
@@ -126,9 +107,7 @@ impl CommonArgs {
         Self {
             service_name: "test_service".to_string(),
             service_id: 0,
-            admin_route: "tcp://127.0.0.1:60001".to_string(),
-            output_port: "tcp://127.0.0.1:60002".to_string(),
-            input_port: "tcp://127.0.0.1:60003".to_string(),
+            bindings: "".to_string(),
             config_dir: PathBuf::from("./test_config"),
             data_dir: PathBuf::from("./test_data"),
         }

@@ -158,6 +158,33 @@ impl Registry {
         self.parameters.get(name)
     }
 
+    /// Updates a parameter by name.
+    ///
+    /// # Arguments
+    ///
+    /// * `name` - The name key to lookup.
+    /// * `value` - The new value to set.
+    ///
+    /// # Returns
+    ///
+    /// * `Some(&Parameter)` if found.
+    /// * `None` if not found.
+    pub fn update_parameter(&mut self, name: &str, value: String) {
+        if let Some(old_parameter) = self.parameters.get_mut(name) {
+            let new_value = match &old_parameter.value {
+                ParameterValue::String(_) => ParameterValue::String(value),
+                ParameterValue::Integer(_) => {
+                    ParameterValue::Integer(value.parse::<i64>().unwrap())
+                }
+                ParameterValue::Float(_) => ParameterValue::Float(value.parse::<f64>().unwrap()),
+                ParameterValue::Boolean(_) => {
+                    ParameterValue::Boolean(value.parse::<bool>().unwrap())
+                }
+            };
+            old_parameter.value = new_value;
+        }
+    }
+
     /// Backups the registry to a file.
     ///
     /// This file is unique to the process and will be used only by the perticular process.

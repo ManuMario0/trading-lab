@@ -3,8 +3,16 @@ use clap::Parser;
 use log::info;
 use trading_core::{
     args::CommonArgs,
-    microservice::{configuration::Configuration, Microservice},
-    model::{allocation::Allocation, market_data::MarketDataBatch},
+    microservice::{
+        configuration::{
+            strategy::{Strategist, Strategy},
+            Configuration,
+        },
+        Microservice,
+    },
+    model::{
+        allocation::Allocation, allocation_batch::AllocationBatch, market_data::MarketDataBatch,
+    },
 };
 
 struct DummyStrategy {
@@ -12,33 +20,35 @@ struct DummyStrategy {
     allocation_amount: f64,
 }
 
-impl DummyStrategy {
-    pub fn new(allocation_amount: f64) -> Self {
-        Self {
-            allocation: Allocation::new(trading_core::model::identity::Identity::new(
-                "dummy_strategy",
-                "1.0",
-            )),
-            allocation_amount,
-        }
-    }
-
-    pub fn on_market_data(&mut self, batch: &MarketDataBatch) -> Allocation {
+impl Strategist<DummyStrategy> for DummyStrategy {
+    fn on_market_data(&mut self, batch: MarketDataBatch) -> AllocationBatch {
         // info!("Received batch with {} updates", batch.get_count());
 
         // Simple dummy logic: always allocate fixed amount to instrument 1 if present
-        let mut allocation = self.allocation.clone();
+        let mut allocations = Vec::new();
+        // Since we want to output a batch of decisions corresponding to the input,
+        // we should conceptually iterate.
+        // For this dummy strategy, we just generate ONE decision based on the latest update
+        // (This simulates a "live" runner that only cares about the last state,
+        // OR we can generate N decisions if we want to be "pure").
 
-        // Just a toy example: if we see an update, buy 1 unit of instrument 1
-        if batch.get_count() > 0 {
+        // Let's implement the "Pure" batch logic: 1 Input -> 1 Output.
+        // But for simplicity in this dummy, let's just create one allocation for the batch.
+        // Wait, the architecture requires consistent types.
+
+        let count = batch.get_count();
+        if count > 0 {
+            let mut allocation = self.allocation.clone();
             allocation.update_position(1, self.allocation_amount);
+            allocations.push(allocation);
         }
 
-        allocation
+        AllocationBatch::new(allocations)
     }
 }
 
-fn main() -> Result<()> {
+#[tokio::main]
+async fn main() -> Result<()> {
     env_logger::init();
 
     // 1. Parse Args
@@ -50,18 +60,18 @@ fn main() -> Result<()> {
     info!("Starting Strategy Lab (Rust): {}", args.get_service_name());
 
     // 2. Define State Closure
-    let initial_state = || DummyStrategy::new(10.0);
+    let initial_state = || DummyStrategy {
+        allocation: Allocation::new(),
+        allocation_amount: 1_000_000.0,
+    };
 
-    // 3. Define Configuration (Strategy)
-    // The callback receives &mut State and &MarketDataBatch, returns Allocation
-    let config = Configuration::new_strategy(Box::new(
-        |strategy: &mut DummyStrategy, batch: &MarketDataBatch| strategy.on_market_data(batch),
-    ));
+    // 2. Define Configuration (Strategy)
+    let config = Configuration::new(Strategy::new());
 
     // 4. Create and Run Microservice
     let service = Microservice::new(initial_state, config);
 
-    service.run();
+    service.run().await;
 
     Ok(())
 }

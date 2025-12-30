@@ -1,27 +1,47 @@
 pub mod configuration;
 pub mod registry;
 
-use crate::{
-    admin::command::AdminPayload,
-    args::CommonArgs,
-    comms::Address,
-    fs::PathManager,
-    microservice::{configuration::Configuration, registry::Registry},
-};
-use std::sync::{mpsc, Arc, Mutex};
-use std::thread;
+use anyhow::Result;
+use log::info;
 
-pub struct Microservice<State> {
-    admin_address: Address,
-    state: Arc<Mutex<State>>,
+use crate::{
+    admin::{command::AdminPayload, AdminCommand, AdminResponse},
+    args::CommonArgs,
+    comms::{self, socket::ReplySocket},
+    fs::PathManager,
+    manifest::Binding,
+    microservice::{
+        configuration::{Configurable, Configuration},
+        registry::Registry,
+    },
+};
+use std::{
+    io,
+    sync::{Arc, Mutex},
+};
+
+pub struct Microservice<Config>
+where
+    Config: Configurable,
+{
+    /// Service settings
+    configuration: Configuration<Config>,
     registry: Registry,
-    on_registry_update: Option<Box<dyn FnOnce(&mut State, &Registry) -> () + 'static>>,
-    path_manager: PathManager,
-    configuration: Configuration<State>,
+    on_registry_update: Option<Box<dyn FnMut(&mut Config::State, &Registry) -> () + 'static>>,
+
+    /// Bindings
     args: CommonArgs,
+    path_manager: PathManager,
+
+    /// Service state
+    state: Arc<Mutex<Config::State>>,
+    should_shutdown: bool,
 }
 
-impl<State> Microservice<State> {
+impl<Config> Microservice<Config>
+where
+    Config: Configurable,
+{
     /// Creates a new microservice instance.
     ///
     /// This constructor will automatically parse command-line arguments.
@@ -34,9 +54,9 @@ impl<State> Microservice<State> {
     /// # Returns
     ///
     /// A new `Microservice` instance.
-    pub fn new<F>(initial_state: F, configuration: Configuration<State>) -> Self
+    pub fn new<F>(initial_state: F, configuration: Configuration<Config>) -> Self
     where
-        F: FnOnce() -> State,
+        F: FnOnce() -> Config::State,
     {
         let args = CommonArgs::new();
         Self::new_with_args(args, initial_state, configuration)
@@ -48,19 +68,19 @@ impl<State> Microservice<State> {
     pub fn new_with_args<F>(
         args: CommonArgs,
         initial_state: F,
-        configuration: Configuration<State>,
+        configuration: Configuration<Config>,
     ) -> Self
     where
-        F: FnOnce() -> State,
+        F: FnOnce() -> Config::State,
     {
         Self {
-            admin_address: args.get_admin_route(),
             state: Arc::new(Mutex::new(initial_state())),
             registry: Registry::new(),
             on_registry_update: None,
             path_manager: PathManager::from_args(&args),
             configuration,
             args,
+            should_shutdown: false,
         }
     }
 
@@ -77,7 +97,7 @@ impl<State> Microservice<State> {
     pub fn with_registry<F, G>(mut self, registry: F, callback: G) -> Self
     where
         F: FnOnce() -> Registry,
-        G: FnOnce(&mut State, &Registry) -> () + 'static,
+        G: FnMut(&mut Config::State, &Registry) -> () + 'static,
     {
         let registry = registry();
         self.registry = registry;
@@ -95,106 +115,106 @@ impl<State> Microservice<State> {
     /// # Panics
     ///
     /// Panics if binding to ports fails or initialization errors occur.
-    pub fn run(mut self)
-    where
-        State: Send + 'static,
-    {
+    pub async fn run(mut self) {
         // 1. Ensure required directories exist
-        if let Err(e) = self.path_manager.ensure_dirs() {
+        if let Err(e) = self.ensure_dirs() {
             panic!("Failed to verify/create directories: {}", e);
         }
 
-        // 2. Initial Registry Sync / Callback
+        // 2. Initialize admin comms
+        let mut admin = self
+            .init_admin_comms()
+            .expect("Failed to initialize admin comms");
+
+        // 3. Initial Registry Sync / Callback
         // If a callback was registered, execute it now to set initial state based on registry
-        if let Some(callback) = self.on_registry_update.take() {
+        if let Some(callback) = self.on_registry_update.as_mut() {
             let mut state = self.state.lock().unwrap();
             callback(&mut state, &self.registry);
         }
 
-        // 3. Start Admin Interface
-        let admin_addr = self.admin_address.clone();
-        let (admin_tx, admin_rx) = mpsc::channel();
+        // 4. Launch the runners for the process
+        self.launch_runners();
 
-        thread::spawn(move || {
-            let context = zmq::Context::new();
-            let socket = context
-                .socket(zmq::REP)
-                .expect("Failed to create Admin REP socket");
-
-            let addr_str = match admin_addr {
-                Address::Zmq(s) => s,
-                Address::Memory(s) => format!("inproc://{}", s),
-                Address::Empty => return, // No admin
-            };
-
-            socket.bind(&addr_str).expect("Failed to bind Admin socket");
-            println!("Admin interface listening on: {}", addr_str);
-
-            loop {
-                // 1. Receive Request
-                let msg = match socket.recv_bytes(0) {
-                    Ok(m) => m,
-                    Err(_) => break, // Context terminated
-                };
-
-                // 2. Parse (JSON)
-                let payload: AdminPayload = match serde_json::from_slice(&msg) {
-                    Ok(p) => p,
-                    Err(e) => {
-                        let _ = socket.send(&format!("{{\"error\": \"{}\"}}", e), 0);
-                        continue;
-                    }
-                };
-
-                // 3. Process
-                match payload {
-                    AdminPayload::Command(cmd) => {
-                        // Forward to Service
-                        // We check for Shutdown here to maybe break the listener loop?
-                        let is_shutdown = cmd.is_shutdown();
-                        if let Err(e) = admin_tx.send(cmd) {
-                            eprintln!("Failed to forward admin command: {}", e);
-                            break;
-                        }
-
-                        // Send Response
-                        // For now we just ack
-                        let _ = socket.send(r#"{"status": "Ok", "payload": null}"#, 0);
-
-                        if is_shutdown {
-                            break;
-                        }
-                    }
-                    _ => {
-                        let _ = socket.send(
-                            r#"{"status": "Error", "payload": "Only commands supported"}"#,
-                            0,
-                        );
-                    }
+        // 5. Admin loop
+        loop {
+            let (msg, response_handler) = match admin.recv().await {
+                Ok(res) => res,
+                Err(e) => {
+                    info!("Admin connection closed or error: {}", e);
+                    break;
                 }
+            };
+            let response = self.process_admin_command(msg.data());
+            response_handler
+                .send_reply(response)
+                .await
+                .expect("Connection lost");
+            if self.should_shutdown {
+                break;
             }
-        });
+        }
 
-        // 4. Launch the Configuration
-        // Default Address Book from Args
-        let mut address_book = std::collections::HashMap::new();
-        // For Multiplexer: output is execution engine
-        address_book.insert("execution_engine".to_string(), self.args.get_output_port());
-        // For Strategy: output is allocation, input is market_data
-        address_book.insert("allocation".to_string(), self.args.get_output_port());
-        address_book.insert("market_data".to_string(), self.args.get_input_port());
+        // 6. Clean up
+        info!("Shutting down complete");
+    }
 
-        match self
-            .configuration
-            .launch(self.state, address_book, admin_rx)
-        {
-            Ok(_) => {
-                // Should not happen if launch loops
-                println!("Service exited gracefully.");
+    /// Ensures that all required directories exist.
+    fn ensure_dirs(&self) -> Result<(), io::Error> {
+        self.path_manager.ensure_dirs()
+    }
+
+    /// Initializes admin comms.
+    fn init_admin_comms(&self) -> Result<ReplySocket<AdminPayload>> {
+        if let Some(admin) = self.args.get_bindings().inputs.get("admin") {
+            if let Binding::Single(source) = admin {
+                comms::builder::build_replier(&source.address, self.args.get_service_id())
+            } else {
+                Err(anyhow::anyhow!("Admin comms not correctly configured: expected single address, found variadic address"))
             }
-            Err(e) => {
-                panic!("Service crashed: {}", e);
-            }
+        } else {
+            Err(anyhow::anyhow!("Admin comms not configured"))
+        }
+    }
+
+    fn launch_runners(&mut self) {
+        self.configuration
+            .launch(self.state.clone(), self.args.get_bindings())
+    }
+
+    fn process_admin_command(&mut self, msg: AdminPayload) -> AdminPayload {
+        match msg {
+            AdminPayload::Command(cmd) => match cmd {
+                AdminCommand::Shutdown => {
+                    info!("Shutting down runners");
+                    self.configuration.shutdown();
+                    self.should_shutdown = true;
+                    AdminPayload::new_response(AdminResponse::Ok)
+                }
+                AdminCommand::Ping => AdminPayload::new_response(AdminResponse::Pong),
+                AdminCommand::UpdateBindings { config } => {
+                    self.configuration.update_from_service_config(config);
+                    AdminPayload::new_response(AdminResponse::Ok)
+                }
+                AdminCommand::Registry => AdminPayload::new_response(AdminResponse::Info(
+                    serde_json::to_value(self.registry.clone()).unwrap(),
+                )),
+                AdminCommand::Status => AdminPayload::new_response(AdminResponse::Ok),
+                AdminCommand::UpdateRegistry { key, value } => {
+                    self.registry.update_parameter(&key, value);
+                    if let Some(callback) = self.on_registry_update.as_mut() {
+                        let mut state = self.state.lock().unwrap();
+                        callback(&mut state, &self.registry);
+                    }
+                    AdminPayload::new_response(AdminResponse::Ok)
+                }
+                AdminCommand::Unknown => {
+                    AdminPayload::new_response(AdminResponse::Error("Unknown command".to_string()))
+                }
+            },
+            _ => AdminPayload::new_response(AdminResponse::Error(
+                "Only commands supported".to_string(),
+            )),
         }
     }
 }

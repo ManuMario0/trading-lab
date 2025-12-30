@@ -2,12 +2,13 @@ mod kelly_multiplexer;
 
 use anyhow::Result;
 use kelly_multiplexer::{KellyMultiplexer, MultiplexerConfig};
-use trading_core::{
-    microservice::{configuration::Configuration, Microservice},
-    model::Allocation,
+use trading_core::microservice::{
+    configuration::{multiplexer::Multiplexer, Configuration},
+    Microservice,
 };
 
-fn main() -> Result<()> {
+#[tokio::main]
+async fn main() -> Result<()> {
     env_logger::init();
 
     // 1. Define State
@@ -20,15 +21,12 @@ fn main() -> Result<()> {
 
     // 2. Define Configuration (Multiplexer)
     // Multiplexer runs differently (has internal logic), so new_multiplexer() sets it up.
-    let config = Configuration::new_multiplexer(Box::new(
-        |_state: &mut KellyMultiplexer, allocation: Allocation| {
-            _state.on_portfolio_received(allocation).unwrap()
-        },
-    ));
+    // 2. Define Configuration (Multiplexer)
+    let config = Configuration::new(Multiplexer::new());
 
     // 3. Run Service
     let service = Microservice::new(initial_state, config);
-    service.run();
+    service.run().await;
 
     Ok(())
 }
