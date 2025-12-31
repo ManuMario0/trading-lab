@@ -6,7 +6,7 @@ use log::info;
 
 use crate::{
     admin::{command::AdminPayload, AdminCommand, AdminResponse},
-    args::CommonArgs,
+    args::{Cli, CommonArgs},
     comms::{self, socket::ReplySocket},
     fs::PathManager,
     manifest::Binding,
@@ -58,7 +58,7 @@ where
     where
         F: FnOnce() -> Config::State,
     {
-        let args = CommonArgs::new();
+        let args = Cli::new().process(&configuration.manifest());
         Self::new_with_args(args, initial_state, configuration)
     }
 
@@ -178,8 +178,11 @@ where
     }
 
     fn launch_runners(&mut self) {
-        self.configuration
-            .launch(self.state.clone(), self.args.get_bindings())
+        self.configuration.launch(
+            self.args.get_service_id(),
+            self.args.get_bindings(),
+            self.state.clone(),
+        );
     }
 
     fn process_admin_command(&mut self, msg: AdminPayload) -> AdminPayload {

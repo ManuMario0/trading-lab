@@ -15,6 +15,7 @@ pub mod args;
 pub mod comms;
 pub mod framework;
 pub mod fs;
+pub mod macros;
 pub mod manifest;
 pub mod microservice;
 // pub mod model; // Moved to trading crate

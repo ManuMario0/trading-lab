@@ -1,4 +1,3 @@
-use crate::comms::Address;
 use crate::framework::runner::{ManagedRunner, Runner};
 use crate::manifest::Binding;
 use crate::model::identity::Id;
@@ -34,7 +33,7 @@ impl RunnerManager {
     ///
     /// * `name` - The identifier of the runner to update.
     /// * `binding` - The binding information.
-    pub(crate) fn update_from_binding(&mut self, name: &str, binding: Binding) {
+    pub fn update_from_binding(&mut self, name: &str, binding: Binding) {
         if let Some(runner) = self.runners.get_mut(name) {
             let old_binding = self.active_bindings.get(name);
 
@@ -88,20 +87,16 @@ impl RunnerManager {
     /// * `state` - Shared state.
     /// * `callback` - The message processing function.
     /// * `address` - The input address, if needed.
-    pub(crate) fn add_runner<State, Input>(
+    pub fn add_runner<State, Input>(
         &mut self,
         name: impl Into<String>,
         state: Arc<Mutex<State>>,
         callback: Box<dyn FnMut(&mut State, Id, Input) + Send>,
-        address: Option<Address>,
     ) where
         State: Send + 'static,
         Input: Sync + Send + Serialize + DeserializeOwned + 'static,
     {
-        let mut runner = Runner::new(state, callback);
-        if let Some(address) = address {
-            runner.add_input(address);
-        }
+        let runner = Runner::new(state, callback);
         self.runners.insert(name.into(), Box::new(runner));
     }
 

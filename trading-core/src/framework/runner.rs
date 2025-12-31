@@ -204,7 +204,7 @@ async fn runner_loop<State, Input>(
             Err(_) => (),
         }
 
-        // 3. Backoff Strategy (Hybrid Spin/Sleep)
+        // 3. Backoff (Hybrid Spin/Sleep)
         if received_work {
             busy_count = 0;
         } else {

@@ -5,24 +5,83 @@
 //! structure, we ensure uniform configuration and behavior across both Rust and
 //! C++ components of the trading platform.
 
-use clap::Parser;
+use clap::{Parser, Subcommand};
 use serde::{Deserialize, Serialize};
 #[cfg(feature = "test-utils")]
 use std::cell::RefCell;
 use std::path::PathBuf;
+
+use crate::manifest::{ServiceBindings, ServiceBlueprint};
+
+#[derive(Parser, Debug, Clone, Serialize, Deserialize)]
+#[command(author, version, about, long_about = None)]
+pub struct Cli {
+    #[command(subcommand)]
+    command: Commands,
+}
+
+impl Cli {
+    /// Parses command-line arguments into a `Cli` struct.
+    ///
+    /// This function automatically handles `--help` and `--version` flags via `clap`.
+    /// If required arguments are missing or invalid, it will print an error and exit.
+    pub fn new() -> Self {
+        #[cfg(feature = "test-utils")]
+        {
+            // Check if a mock is set for this thread
+            let mock = MOCK_ARGS.with(|m| m.borrow().clone());
+            if let Some(args) = mock {
+                return Cli {
+                    command: Commands::Run(args),
+                };
+            }
+            // Fallback in unit tests if no mock is set
+            return Cli {
+                command: Commands::Run(CommonArgs::default_for_test()),
+            };
+        }
+
+        #[cfg(not(feature = "test-utils"))]
+        Cli::parse()
+    }
+
+    #[cfg(feature = "test-utils")]
+    pub fn set_mock(args: CommonArgs) {
+        MOCK_ARGS.with(|m| *m.borrow_mut() = Some(args));
+    }
+
+    pub fn process(self, manifest: &ServiceBlueprint) -> CommonArgs {
+        match self.command {
+            Commands::Run(args) => args,
+            Commands::Manifest => {
+                println!("{}", serde_json::to_string(manifest).unwrap());
+                std::process::exit(0);
+            }
+        }
+    }
+}
+
+#[derive(Subcommand, Debug, Clone, Serialize, Deserialize)]
+enum Commands {
+    Run(CommonArgs),
+    Manifest,
+}
+
+impl From<Cli> for Commands {
+    fn from(value: Cli) -> Self {
+        value.command
+    }
+}
 
 #[cfg(feature = "test-utils")]
 thread_local! {
     static MOCK_ARGS: RefCell<Option<CommonArgs>> = RefCell::new(None);
 }
 
-use crate::manifest::ServiceBindings;
-
 /// Holds the standard configuration parameters parsed from the command line.
 ///
 /// These arguments are expected to be present for every microservice invocation.
 #[derive(Parser, Debug, Clone, Serialize, Deserialize)]
-#[command(author, version, about, long_about = None)]
 pub struct CommonArgs {
     /// Name of the service (used for logging and admin registry)
     #[arg(short, long)]
@@ -44,31 +103,6 @@ pub struct CommonArgs {
 }
 
 impl CommonArgs {
-    /// Parses command-line arguments into a `CommonArgs` struct.
-    ///
-    /// This function automatically handles `--help` and `--version` flags via `clap`.
-    /// If required arguments are missing or invalid, it will print an error and exit.
-    pub fn new() -> Self {
-        #[cfg(feature = "test-utils")]
-        {
-            // Check if a mock is set for this thread
-            let mock = MOCK_ARGS.with(|m| m.borrow().clone());
-            if let Some(args) = mock {
-                return args;
-            }
-            // Fallback in unit tests if no mock is set
-            return Self::default_for_test();
-        }
-
-        #[cfg(not(feature = "test-utils"))]
-        CommonArgs::parse()
-    }
-
-    #[cfg(feature = "test-utils")]
-    pub fn set_mock(args: CommonArgs) {
-        MOCK_ARGS.with(|m| *m.borrow_mut() = Some(args));
-    }
-
     /// Returns the service bindings.
     pub fn get_bindings(&self) -> ServiceBindings {
         serde_json::from_str(&self.bindings).expect("Failed to parse bindings")

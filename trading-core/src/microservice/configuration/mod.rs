@@ -15,7 +15,12 @@ pub mod strategy;
 
 use std::sync::{Arc, Mutex};
 
-use crate::{framework::runner_manager::RunnerManager, manifest::ServiceBindings};
+use trading::Id;
+
+use crate::{
+    framework::runner_manager::RunnerManager,
+    manifest::{ServiceBindings, ServiceBlueprint},
+};
 
 pub struct Configuration<Config> {
     config: Config,
@@ -33,10 +38,10 @@ where
         }
     }
 
-    pub fn launch(&mut self, state: Arc<Mutex<Config::State>>, initial_bindings: ServiceBindings) {
+    pub fn launch(&mut self, id: Id, bindings: ServiceBindings, state: Arc<Mutex<Config::State>>) {
         self.runners = Some(
             self.config
-                .create_runners(initial_bindings, state)
+                .create_runners(id, bindings, state)
                 .expect("Failed to create runners"),
         );
     }
@@ -54,6 +59,10 @@ where
             runners.shutdown();
         }
     }
+
+    pub fn manifest(&self) -> &ServiceBlueprint {
+        self.config.manifest()
+    }
 }
 
 pub trait Configurable {
@@ -61,7 +70,10 @@ pub trait Configurable {
 
     fn create_runners(
         &self,
-        config: ServiceBindings,
+        id: Id,
+        bindings: ServiceBindings,
         state: Arc<Mutex<Self::State>>,
     ) -> Result<RunnerManager, String>;
+
+    fn manifest(&self) -> &ServiceBlueprint;
 }

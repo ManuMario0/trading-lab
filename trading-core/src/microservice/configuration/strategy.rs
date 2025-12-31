@@ -1,46 +1,49 @@
 use std::sync::{Arc, Mutex};
 
-use lazy_static::lazy_static;
-
-use crate::manifest::{Binding, PortDefinition, ServiceBindings, ServiceBlueprint};
+use crate::define_service;
+use crate::manifest::{ServiceBindings, ServiceBlueprint};
 use crate::microservice::configuration::Configurable;
 use crate::model::identity::Id;
-use crate::{args, comms};
 use crate::{
     framework::runner_manager::RunnerManager,
     model::{allocation_batch::AllocationBatch, market_data::MarketDataBatch},
 };
 use trading::Strategist; // External trait
 
-lazy_static! {
-    pub(crate) static ref STRATEGY_MANIFEST: ServiceBlueprint = ServiceBlueprint {
-        service_type: "Strategy".to_string(),
-        inputs: vec![PortDefinition {
-            name: "market_data".to_string(),
-            data_type: "MarketDataBatch".to_string(),
-            required: true,
-            is_variadic: false,
-        }],
-        outputs: vec![PortDefinition {
-            name: "allocation".to_string(),
-            data_type: "AllocationBatch".to_string(),
-            required: true,
-            is_variadic: false,
-        }],
-    };
-}
+define_service!(
+    name: strategy,
+    service_type: "Strategy",
+    inputs: {
+        market_data => fn on_market_data(MarketDataBatch) [ required: true, variadic: false ]
+    },
+    outputs: {
+        allocation => AllocationBatch
+    }
+);
 
 pub struct Strategy<State> {
-    manifest: ServiceBlueprint,
     _state_phantom: std::marker::PhantomData<State>,
 }
 
 impl<State> Strategy<State> {
     pub fn new() -> Self {
         Self {
-            manifest: STRATEGY_MANIFEST.clone(),
             _state_phantom: std::marker::PhantomData,
         }
+    }
+}
+
+impl<State> strategy::Handler for State
+where
+    State: Strategist + Send + 'static,
+{
+    fn on_market_data(&mut self, _id: Id, data: MarketDataBatch, outputs: &mut strategy::Outputs) {
+        let allocation_batch = self.on_market_data(data);
+        tokio::task::block_in_place(|| {
+            tokio::runtime::Handle::current().block_on(async {
+                let _ = outputs.allocation.send(allocation_batch).await;
+            });
+        });
     }
 }
 
@@ -52,52 +55,14 @@ where
 
     fn create_runners(
         &self,
-        config: ServiceBindings,
+        id: Id,
+        bindings: ServiceBindings,
         state: Arc<Mutex<State>>,
     ) -> Result<RunnerManager, String> {
-        create_strategy_runner_manager(config, state)
+        strategy::create_runner_manager(id, bindings, state)
     }
-}
 
-pub(super) fn create_strategy_runner_manager<State>(
-    config: ServiceBindings,
-    state: Arc<Mutex<State>>,
-) -> Result<RunnerManager, String>
-where
-    State: Strategist + Send + 'static,
-{
-    let mut runner_manager = RunnerManager::new();
-
-    // Create publisher
-    let publisher = if let Some(Binding::Single(source)) = config.outputs.get("allocation") {
-        comms::build_publisher::<AllocationBatch>(
-            &source.address,
-            args::CommonArgs::new().get_service_id(),
-        )
-        .map_err(|e| format!("Failed to create publisher: {}", e))?
-    } else {
-        return Err("Missing 'allocation' binding".to_owned());
-    };
-
-    // Create the market data runner
-    if let Some(Binding::Single(source)) = config.inputs.get("market_data") {
-        runner_manager.add_runner(
-            "market_data",
-            state,
-            Box::new(
-                move |state: &mut State, _config_id: Id, data: MarketDataBatch| {
-                    let allocation_batch = state.on_market_data(data);
-                    tokio::task::block_in_place(|| {
-                        tokio::runtime::Handle::current().block_on(async {
-                            let _ = publisher.send(allocation_batch).await;
-                        });
-                    });
-                },
-            ),
-            Some(source.address.clone()),
-        );
-    } else {
-        return Err("Missing 'market_data' binding".to_owned());
+    fn manifest(&self) -> &ServiceBlueprint {
+        &strategy::MANIFEST
     }
-    Ok(runner_manager)
 }

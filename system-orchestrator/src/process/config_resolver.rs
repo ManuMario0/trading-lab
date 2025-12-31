@@ -1,14 +1,9 @@
 use crate::layout::models::{layout::Layout, node::Node};
-use crate::process::models::port_allocator::{Port, PortAllocator};
+use crate::process::models::port_allocator::PortAllocator;
 use std::collections::HashMap;
 use trading_core::{
     comms::Address,
-    manifest::{Binding, ServiceBindings, ServiceBlueprint, Source},
-    microservice::configuration::{
-        multiplexer::MULTIPLEXER_MANIFEST,
-        portfolio_manager::PORTFOLIO_MANAGER_MANIFEST,
-        // strategy::STRATEGY_MANIFEST,
-    },
+    manifest::{Binding, ServiceBindings, Source},
 };
 
 pub struct ConfigResolver;

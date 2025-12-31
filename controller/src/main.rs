@@ -4,7 +4,6 @@ use orchestrator_protocol::{
     Layout, OrchestratorClient, OrchestratorCommand, OrchestratorResponse, RunMode,
 };
 use std::fs;
-use trading_core::comms::transports::zmq::ZmqDuplex;
 
 #[derive(Parser)]
 #[command(name = "controller")]
@@ -64,14 +63,6 @@ async fn main() -> Result<()> {
             let layout: Layout = serde_json::from_str(&content).context("Invalid Layout JSON")?;
 
             // Mode is hardcoded for now or we could add a flag
-            let mode = RunMode::BacktestFast; // Defaulting for now as per user req "fast debugging"? Or maybe Live?
-                                              // User requested "fast controller... to start implementing strategies ASAP".
-                                              // Let's assume Live for "running microservices" or Paper.
-                                              // But since this is a generic controller, maybe default to Paper?
-                                              // Or add a --mode flag. I'll stick to Paper as safer default or Live if they want real orchestrator behavior.
-                                              // Orchestrator logic "ProcessManager" spawns processes. That's "Live" style (even if paper trading).
-                                              // BacktestFast runs in single process.
-                                              // The current ProcessManager logic is "Spawn Processes". So it supports Live/Paper.
             let mode = RunMode::Live;
 
             let response = client
