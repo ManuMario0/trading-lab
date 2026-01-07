@@ -102,5 +102,5 @@ Run user strategies as WASM modules.
 ## 5. Next Steps (Pre-Split)
 
 1.  **Cleanup `trading-api`:** Review strictly. Is everything there necessary for the user? Is anything missing?
-2.  **Define the "Compilation Boundary":** Decide if you want to support Dynamic Libraries (`.so`) or if you will monolithically compile user code with your runner. (Hint: Monolithic compilation is safer for Rust).
+2.  **Define the "Compilation Boundary":** We have decided to use **Monolithic Compilation** (Static Linking) see ADR-009. We will NOT support Dynamic Libraries. User code is compiled with the runner.
 

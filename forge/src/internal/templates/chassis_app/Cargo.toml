@@ -1,0 +1,15 @@
+[package]
+name = "chassis"
+version = "0.0.0" # Will be overwritten by Forge
+edition = "2021"
+
+[dependencies]
+# The user's code will be injected here as:
+# user_crate = { path = "..." }
+
+trading = { path = "../../../../../trading-api" } # Relative path for dev, will be absolute in prod
+trading-core = { path = "../../../../../trading-core" }
+tokio = { version = "1.32", features = ["full"] }
+env_logger = "0.10"
+log = "0.4"
+anyhow = "1.0"
