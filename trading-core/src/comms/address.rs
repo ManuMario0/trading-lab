@@ -4,6 +4,7 @@
 
 use serde::{Deserialize, Serialize};
 use std::fmt;
+use std::str::FromStr;
 
 /// Represents a network address for communication endpoints.
 ///
@@ -64,5 +65,23 @@ impl fmt::Display for Address {
 impl Default for Address {
     fn default() -> Self {
         Address::Zmq("tcp://127.0.0.1:5555".to_string())
+    }
+}
+
+impl FromStr for Address {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        if let Some(stripped) = s.strip_prefix("zmq:") {
+            Ok(Address::Zmq(stripped.to_string()))
+        } else if let Some(stripped) = s.strip_prefix("mem:") {
+            Ok(Address::Memory(stripped.to_string()))
+        } else if s == "empty" {
+            Ok(Address::Empty)
+        } else if s.starts_with("tcp://") || s.starts_with("ipc://") {
+            Ok(Address::Zmq(s.to_string()))
+        } else {
+            Err(format!("Unknown address format: {}", s))
+        }
     }
 }

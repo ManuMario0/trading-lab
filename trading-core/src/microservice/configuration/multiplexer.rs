@@ -11,7 +11,7 @@ use trading::Multiplexist;
 
 define_service!(
     name: multiplexer,
-    service_type: "Strategy", // NOTE: Multiplexer mimics a Strategy
+    service_type: "Multiplexer",
     inputs: {
         strategies => fn on_allocation_batch(AllocationBatch) [ required: true, variadic: true ]
     },

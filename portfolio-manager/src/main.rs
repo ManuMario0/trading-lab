@@ -10,7 +10,7 @@ async fn main() -> Result<()> {
     env_logger::init();
 
     // 1. Define Initialization Logic
-    let initial_state = || {
+    let initial_state = |_: &_| {
         // Initialize RiskGuard
         let mut risk_guard = RiskGuard::new();
         risk_guard.add_policy(Box::new(
@@ -37,7 +37,12 @@ async fn main() -> Result<()> {
 
     // 3. Create and Run Microservice
     // Microservice handles args, admin port, runners launch, and shutdown loop
-    let service = Microservice::new(initial_state, config);
+    let service = Microservice::new(
+        initial_state,
+        config,
+        env!("CARGO_PKG_VERSION").to_string(),
+        env!("CARGO_PKG_DESCRIPTION").to_string(),
+    );
     service.run().await;
 
     Ok(())

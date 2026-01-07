@@ -31,13 +31,9 @@ pub struct KellyMultiplexer {
 }
 
 impl KellyMultiplexer {
-    pub fn new(config: MultiplexerConfig) -> Self {
+    pub fn new(config: MultiplexerConfig, id: usize) -> Self {
         Self {
-            identity: Identity::new(
-                "kelly_multiplexer",
-                "1.0.0",
-                CommonArgs::new().get_service_id(),
-            ),
+            identity: Identity::new("kelly_multiplexer", "1.0.0", id),
             config,
             clients: HashMap::new(),
         }

@@ -8,6 +8,7 @@ pub enum OrchestratorCommand {
     GetStatus,
     GetWallet { layout_id: String },
     Shutdown,
+    GetServices,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -15,5 +16,6 @@ pub enum OrchestratorResponse {
     Success(String),
     StatusInfo(Vec<ProcessInfo>),
     WalletInfo(serde_json::Value),
+    ServicesList(Vec<crate::model::ServiceDescriptor>),
     Error(String),
 }

@@ -12,11 +12,11 @@ async fn main() -> Result<()> {
     env_logger::init();
 
     // 1. Define State
-    let initial_state = || {
+    let initial_state = |args: &trading_core::args::CommonArgs| {
         let config = MultiplexerConfig {
             kelly_fraction: 1.0,
         };
-        KellyMultiplexer::new(config)
+        KellyMultiplexer::new(config, args.get_service_id())
     };
 
     // 2. Define Configuration (Multiplexer)
@@ -25,7 +25,12 @@ async fn main() -> Result<()> {
     let config = Configuration::new(Multiplexer::new());
 
     // 3. Run Service
-    let service = Microservice::new(initial_state, config);
+    let service = Microservice::new(
+        initial_state,
+        config,
+        env!("CARGO_PKG_VERSION").to_string(),
+        env!("CARGO_PKG_DESCRIPTION").to_string(),
+    );
     service.run().await;
 
     Ok(())

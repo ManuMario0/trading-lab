@@ -1,16 +1,11 @@
 use anyhow::Result;
-use clap::Parser;
-use log::info;
 use trading::{
     model::{allocation_batch::AllocationBatch, market_data::MarketDataBatch},
     Allocation, Strategist,
 };
-use trading_core::{
-    args::CommonArgs,
-    microservice::{
-        configuration::{strategy::Strategy, Configuration},
-        Microservice,
-    },
+use trading_core::microservice::{
+    configuration::{strategy::Strategy, Configuration},
+    Microservice,
 };
 
 struct DummyStrategy {
@@ -18,9 +13,11 @@ struct DummyStrategy {
     allocation_amount: f64,
 }
 
+use log::info;
+
 impl Strategist for DummyStrategy {
     fn on_market_data(&mut self, batch: MarketDataBatch) -> AllocationBatch {
-        // info!("Received batch with {} updates", batch.get_count());
+        info!("Received batch with {} updates", batch.get_count());
 
         // Simple dummy logic: always allocate fixed amount to instrument 1 if present
 
@@ -48,16 +45,8 @@ impl Strategist for DummyStrategy {
 async fn main() -> Result<()> {
     env_logger::init();
 
-    // 1. Parse Args
-    // We use CommonArgs derive parser.
-    // Note: In a real app we might combine this with local args,
-    // but for now we just use the common ones.
-    let args = CommonArgs::parse();
-
-    info!("Starting Strategy Lab (Rust): {}", args.get_service_name());
-
     // 2. Define State Closure
-    let initial_state = || DummyStrategy {
+    let initial_state = |_: &_| DummyStrategy {
         allocation: Allocation::new(),
         allocation_amount: 1_000_000.0,
     };
@@ -66,7 +55,12 @@ async fn main() -> Result<()> {
     let config = Configuration::new(Strategy::new());
 
     // 4. Create and Run Microservice
-    let service = Microservice::new(initial_state, config);
+    let service = Microservice::new(
+        initial_state,
+        config,
+        env!("CARGO_PKG_VERSION").to_string(),
+        env!("CARGO_PKG_DESCRIPTION").to_string(),
+    );
 
     service.run().await;
 

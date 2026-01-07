@@ -5,6 +5,13 @@ use serde::{Deserialize, Serialize};
 use crate::comms::Address;
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct ServiceManifest {
+    pub blueprint: ServiceBlueprint,
+    pub version: String,
+    pub description: String,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct ServiceBlueprint {
     /// Unique identifier for the service type (e.g., "MomentumStrategy", "GeoMultiplexer")
     pub service_type: String,
@@ -80,6 +87,9 @@ impl ServiceBlueprint {
     ) -> Vec<String> {
         let mut args = Vec::new();
 
+        // Subcommand
+        args.push("run".to_string());
+
         // Standard Args
         args.push("--service-name".to_string());
         args.push(self.service_type.clone());
@@ -128,5 +138,15 @@ impl ServiceBlueprint {
         args.push(".".to_string());
 
         args
+    }
+}
+
+impl ServiceManifest {
+    pub fn new(blueprint: ServiceBlueprint, version: String, description: String) -> Self {
+        Self {
+            blueprint,
+            version,
+            description,
+        }
     }
 }

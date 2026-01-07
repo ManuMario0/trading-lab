@@ -174,7 +174,18 @@ where
     /// ```
     pub(crate) async fn recv<'a>(&'a mut self) -> Result<(Packet<C>, ResponseHandle<'a, C>)> {
         let bytes = self.transport.recv_bytes().await?;
-        let packet: Packet<C> = bincode::deserialize(&bytes)?;
+        let packet: Packet<C> = match bincode::deserialize(&bytes) {
+            Ok(p) => p,
+            Err(e) => {
+                // If deserialization fails, the REP socket is still in SEND state.
+                // We must send a reply to reset it to RECV state for the next request.
+                // We send an empty frame which will likely cause a deserialization error on the other side,
+                // but that's better than deadlocking the service.
+                let _ = self.transport.send_bytes(b"").await;
+                return Err(e.into());
+            }
+        };
+
         let response_handle = ResponseHandle {
             transport: &self.transport,
             id: self.id,

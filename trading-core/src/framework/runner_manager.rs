@@ -100,6 +100,15 @@ impl RunnerManager {
         self.runners.insert(name.into(), Box::new(runner));
     }
 
+    /// Adds a pre-configured managed runner.
+    pub(crate) fn add_managed_runner(
+        &mut self,
+        name: impl Into<String>,
+        runner: Box<dyn ManagedRunner>,
+    ) {
+        self.runners.insert(name.into(), runner);
+    }
+
     /// Shuts down all runners managed by this manager.
     pub fn shutdown(self) {
         for mut runner in self.runners.into_values() {

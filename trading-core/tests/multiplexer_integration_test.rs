@@ -97,7 +97,7 @@ fn test_multiplexer_dynamic_add_strategy() {
         ]);
 
         let config = Configuration::new(Multiplexer::new());
-        let service = Microservice::new_with_args(args, || TestState, config);
+        let service = Microservice::new_with_args(args, |_: &_| TestState, config);
 
         let rt = tokio::runtime::Runtime::new().unwrap();
         rt.block_on(service.run());

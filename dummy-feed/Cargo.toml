@@ -1,0 +1,13 @@
+[package]
+name = "dummy-feed"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+trading-core = { path = "../trading-core" }
+anyhow = "1.0"
+log = "0.4"
+env_logger = "0.10"
+tokio = { version = "1.42", features = ["full"] }
+trading = { version = "0.1.0", path = "../trading-api" }
+rand = "0.8"

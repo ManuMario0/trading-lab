@@ -19,7 +19,7 @@ define_service!(
     service_type: "PortfolioManager",
     inputs: {
         allocation => fn on_allocation(AllocationBatch) [ required: true, variadic: false ]
-        portfolio => fn on_portfolio(Actual) [ required: true, variadic: false ]
+        portfolio => fn on_portfolio(Actual) [ required: false, variadic: false ]
         market_data => fn on_market_data(PriceUpdate) [ required: false, variadic: false ]
     },
     outputs: {

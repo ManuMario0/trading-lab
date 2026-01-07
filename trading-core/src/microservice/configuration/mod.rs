@@ -9,6 +9,7 @@
 
 pub mod broker_gateway;
 pub mod execution_engine;
+pub mod feeder;
 pub mod multiplexer;
 pub mod portfolio_manager;
 pub mod strategy;

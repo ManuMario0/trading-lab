@@ -11,7 +11,7 @@ use serde::{Deserialize, Serialize};
 use std::cell::RefCell;
 use std::path::PathBuf;
 
-use crate::manifest::{ServiceBindings, ServiceBlueprint};
+use crate::manifest::ServiceBindings;
 
 #[derive(Parser, Debug, Clone, Serialize, Deserialize)]
 #[command(author, version, about, long_about = None)]
@@ -50,7 +50,7 @@ impl Cli {
         MOCK_ARGS.with(|m| *m.borrow_mut() = Some(args));
     }
 
-    pub fn process(self, manifest: &ServiceBlueprint) -> CommonArgs {
+    pub fn process(self, manifest: &crate::manifest::ServiceManifest) -> CommonArgs {
         match self.command {
             Commands::Run(args) => args,
             Commands::Manifest => {

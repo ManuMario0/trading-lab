@@ -10,5 +10,5 @@ members = [
     "portfolio-manager",
     "broker-gateway",
     "demo-runner",
-    "gateways/gateway-paper", "orchestrator-protocol", "controller", "supervisor-backend",
+    "gateways/gateway-paper", "orchestrator-protocol", "controller", "supervisor-backend", "dummy-feed",
 ]

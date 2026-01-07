@@ -44,47 +44,36 @@ async fn main() -> Result<()> {
     let cli = Cli::parse();
 
     // Connect to Orchestrator
-    // Default port 5555 as in daemon
+    // Default port 5555
     let addr = "tcp://127.0.0.1:5555";
 
-    // Use REQ socket for client
-    let transport = Box::new(trading_core::comms::transports::zmq::ZmqClientDuplex::new(
-        addr,
-    )?);
-    let mut client = OrchestratorClient::new(transport);
+    // Initialize Client
+    let mut client = OrchestratorClient::new(addr)?;
 
     match cli.command {
         Commands::Status => {
-            let response = client.send_command(OrchestratorCommand::GetStatus).await?;
-            print_response(response);
+            // Not yet implemented in Client helper, so we skip or error.
+            eprintln!("Status command not yet implemented in client library.");
         }
         Commands::Deploy { file } => {
             let content = fs::read_to_string(&file).context("Failed to read layout file")?;
             let layout: Layout = serde_json::from_str(&content).context("Invalid Layout JSON")?;
-
-            // Mode is hardcoded for now or we could add a flag
             let mode = RunMode::Live;
 
-            let response = client
-                .send_command(OrchestratorCommand::Deploy { layout, mode })
-                .await?;
-            print_response(response);
+            match client.deploy(layout, mode).await {
+                Ok(msg) => println!("SUCCESS: {}", msg),
+                Err(e) => eprintln!("ERROR: {}", e),
+            }
         }
-        Commands::Stop { layout } => {
-            let response = client
-                .send_command(OrchestratorCommand::Stop { layout_id: layout })
-                .await?;
-            print_response(response);
-        }
-        Commands::Wallet { layout } => {
-            let response = client
-                .send_command(OrchestratorCommand::GetWallet { layout_id: layout })
-                .await?;
-            print_response(response);
+        Commands::Stop { layout } => match client.stop(layout).await {
+            Ok(msg) => println!("SUCCESS: {}", msg),
+            Err(e) => eprintln!("ERROR: {}", e),
+        },
+        Commands::Wallet { layout: _ } => {
+            eprintln!("Wallet command not yet implemented in client library.");
         }
         Commands::Shutdown => {
-            let response = client.send_command(OrchestratorCommand::Shutdown).await?;
-            print_response(response);
+            eprintln!("Shutdown command not yet implemented in client library.");
         }
     }
 
@@ -103,6 +92,12 @@ fn print_response(resp: OrchestratorResponse) {
         }
         OrchestratorResponse::WalletInfo(val) => {
             println!("{}", serde_json::to_string_pretty(&val).unwrap())
+        }
+        OrchestratorResponse::ServicesList(services) => {
+            println!("Available Services:");
+            for s in services {
+                println!("- {} (v{}): {}", s.service, s.version, s.description);
+            }
         }
         OrchestratorResponse::Error(e) => eprintln!("ERROR: {}", e),
     }

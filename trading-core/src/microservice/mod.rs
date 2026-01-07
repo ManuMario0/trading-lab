@@ -54,11 +54,21 @@ where
     /// # Returns
     ///
     /// A new `Microservice` instance.
-    pub fn new<F>(initial_state: F, configuration: Configuration<Config>) -> Self
+    pub fn new<F>(
+        initial_state: F,
+        configuration: Configuration<Config>,
+        version: String,
+        description: String,
+    ) -> Self
     where
-        F: FnOnce() -> Config::State,
+        F: FnOnce(&CommonArgs) -> Config::State,
     {
-        let args = Cli::new().process(&configuration.manifest());
+        let manifest = crate::manifest::ServiceManifest::new(
+            configuration.manifest().clone(),
+            version,
+            description,
+        );
+        let args = Cli::new().process(&manifest);
         Self::new_with_args(args, initial_state, configuration)
     }
 
@@ -71,10 +81,11 @@ where
         configuration: Configuration<Config>,
     ) -> Self
     where
-        F: FnOnce() -> Config::State,
+        F: FnOnce(&CommonArgs) -> Config::State,
     {
+        let state = initial_state(&args);
         Self {
-            state: Arc::new(Mutex::new(initial_state())),
+            state: Arc::new(Mutex::new(state)),
             registry: Registry::new(),
             on_registry_update: None,
             path_manager: PathManager::from_args(&args),
@@ -116,33 +127,40 @@ where
     ///
     /// Panics if binding to ports fails or initialization errors occur.
     pub async fn run(mut self) {
+        info!("Microservice: Starting up...");
         // 1. Ensure required directories exist
         if let Err(e) = self.ensure_dirs() {
             panic!("Failed to verify/create directories: {}", e);
         }
+        info!("Microservice: Directories ensured.");
 
         // 2. Initialize admin comms
         let mut admin = self
             .init_admin_comms()
             .expect("Failed to initialize admin comms");
+        info!("Microservice: Admin comms initialized.");
 
         // 3. Initial Registry Sync / Callback
         // If a callback was registered, execute it now to set initial state based on registry
         if let Some(callback) = self.on_registry_update.as_mut() {
+            info!("Microservice: Syncing initial registry...");
             let mut state = self.state.lock().unwrap();
             callback(&mut state, &self.registry);
         }
 
         // 4. Launch the runners for the process
+        info!("Microservice: Launching runners...");
         self.launch_runners();
+        info!("Microservice: Runners launched. Entering Admin Loop.");
 
         // 5. Admin loop
         loop {
             let (msg, response_handler) = match admin.recv().await {
                 Ok(res) => res,
                 Err(e) => {
-                    info!("Admin connection closed or error: {}", e);
-                    break;
+                    log::warn!("Admin connection error (retrying in 100ms): {:?}", e);
+                    tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+                    continue;
                 }
             };
             let response = self.process_admin_command(msg.data());
